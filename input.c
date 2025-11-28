@@ -6,8 +6,23 @@
 void read_input(char* out, int max) {
     int pos = 0;
     char buffer[128];
+    
     while (1) {
         unsigned char sc = keyboard_read();
+        
+        /* Pfeiltasten behandeln */
+        if (is_arrow_key(sc)) {
+            arrow_key_t dir = get_arrow_direction(sc);
+            
+            if (dir == ARROW_UP) {
+                vga_scroll_up();
+            } else if (dir == ARROW_DOWN) {
+                vga_scroll_down();
+            }
+            // LEFT und RIGHT können für History verwendet werden
+            continue;
+        }
+        
         /* ignore key-release scancodes */
         if (sc & 0x80) continue;
 
@@ -19,6 +34,7 @@ void read_input(char* out, int max) {
             buffer[pos] = 0;
             strcpy(out, buffer);
             vga_print("\n");
+            vga_scroll_to_bottom();  // Zurück zum Ende scrollen
             return;
         }
 
@@ -35,6 +51,7 @@ void read_input(char* out, int max) {
         if (pos < max - 1) {
             buffer[pos++] = c;
             char tmp[2] = {c, 0};
+            vga_scroll_to_bottom();  // Bei Eingabe ans Ende springen
             vga_print(tmp); /* echo */
         }
     }

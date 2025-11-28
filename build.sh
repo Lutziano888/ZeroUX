@@ -20,6 +20,7 @@ gcc -m32 -ffreestanding -c shell.c -o build/shell.o
 gcc -m32 -ffreestanding -c rtc.c -o build/rtc.o
 gcc -m32 -ffreestanding -c keyboard.c -o build/keyboard.o
 gcc -m32 -ffreestanding -c calc.c -o build/calc.o
+gcc -m32 -ffreestanding -c fs.c -o build/fs.o
 
 # Link (multiboot header must come first)
 ld -m elf_i386 -T linker.ld -o build/kernel.bin \
@@ -33,7 +34,8 @@ ld -m elf_i386 -T linker.ld -o build/kernel.bin \
     build/shell.o \
     build/rtc.o \
     build/keyboard.o \
-    build/calc.o 
+    build/calc.o \
+    build/fs.o
 
 # Copy to iso tree
 cp build/kernel.bin build/iso/boot/kernel.bin

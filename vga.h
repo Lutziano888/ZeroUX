@@ -7,4 +7,9 @@ void vga_clear();
 void vga_backspace();
 void vga_println(const char* str);
 
+// Scrolling-Funktionen
+void vga_scroll_up();
+void vga_scroll_down();
+void vga_scroll_to_bottom();
+
 #endif
