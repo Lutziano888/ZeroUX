@@ -8,6 +8,13 @@ unsigned char keyboard_read() {
     return inb(0x60);
 }
 
+/* Non-blocking read - returns 0 if no key available */
+unsigned char keyboard_read_nonblock() {
+    if ((inb(0x64) & 1) == 0)
+        return 0;
+    return inb(0x60);
+}
+
 /* Minimal US-layout scancode -> ascii mapping for standard keys.
    Only handles simple keys, ignores modifiers and releases. */
 char scancode_to_ascii(unsigned char sc) {

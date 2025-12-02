@@ -5,11 +5,12 @@
 #include "rtc.h"
 #include "calc.h"
 #include "fs.h"
+#include "gui.h"
 
 void shell() {
     char input[128];
 
-    vga_print("zeroUX Shell v1.1\n");
+    vga_print("zeroUX Shell v1.2\n");
     vga_print("type 'help' for commands.\n\n");
 
     // Filesystem initialisieren
@@ -31,6 +32,7 @@ void shell() {
             vga_print("  about     - Info about zeroUX\n");
             vga_print("  echo X    - Print X\n");
             vga_print("  time      - Show system time\n");
+            vga_print("  gui       - Start GUI Desktop\n");
             vga_print("  reboot    - Restart system\n");
             vga_print("\nFilesystem:\n");
             vga_print("  ls        - List files\n");
@@ -43,6 +45,14 @@ void shell() {
             vga_print("  write F   - Write to file\n");
         }
 
+        else if (strcmp(input, "gui") == 0) {
+            gui_init();
+            gui_run();
+            // Nach GUI zurück zu Text-Modus
+            vga_clear();
+            vga_print("Returned from GUI mode\n\n");
+        }
+
         else if (strcmp(input, "calc") == 0) {
             calc_run();
         }
@@ -52,7 +62,8 @@ void shell() {
         }
 
         else if (strcmp(input, "about") == 0) {
-            vga_print("zeroUX OS - simple C kernel with filesystem\n");
+            vga_print("zeroUX OS - Simple C kernel with GUI\n");
+            vga_print("Features: Shell, Filesystem, GUI Desktop\n");
         }
 
         else if (strncmp(input, "echo ", 5) == 0) {
@@ -117,7 +128,6 @@ void shell() {
         }
 
         else if (strncmp(input, "write ", 6) == 0) {
-            // Format: write filename
             char* filename = input + 6;
             
             vga_print("Enter content (max 1024 chars):\n");

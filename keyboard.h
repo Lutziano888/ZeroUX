@@ -9,7 +9,8 @@ typedef enum {
     ARROW_RIGHT
 } arrow_key_t;
 
-unsigned char keyboard_read(); /* returns raw scancode (no conversion) */
+unsigned char keyboard_read(); /* returns raw scancode (blocking) */
+unsigned char keyboard_read_nonblock(); /* returns 0 if no key */
 char scancode_to_ascii(unsigned char scancode);
 
 int is_arrow_key(unsigned char scancode);

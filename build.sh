@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "===== Building zeroUX ====="
+echo "===== Building zeroUX with GUI ====="
 
 rm -rf build
 mkdir -p build/iso/boot/grub
@@ -21,6 +21,7 @@ gcc -m32 -ffreestanding -c rtc.c -o build/rtc.o
 gcc -m32 -ffreestanding -c keyboard.c -o build/keyboard.o
 gcc -m32 -ffreestanding -c calc.c -o build/calc.o
 gcc -m32 -ffreestanding -c fs.c -o build/fs.o
+gcc -m32 -ffreestanding -c gui.c -o build/gui.o
 
 # Link (multiboot header must come first)
 ld -m elf_i386 -T linker.ld -o build/kernel.bin \
@@ -35,7 +36,8 @@ ld -m elf_i386 -T linker.ld -o build/kernel.bin \
     build/rtc.o \
     build/keyboard.o \
     build/calc.o \
-    build/fs.o
+    build/fs.o \
+    build/gui.o
 
 # Copy to iso tree
 cp build/kernel.bin build/iso/boot/kernel.bin
