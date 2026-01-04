@@ -1,20 +1,25 @@
 #ifndef GUI_COLORS_H
 #define GUI_COLORS_H
 
-// Einheitliches Farbschema für zeroUX
-#define COLOR_BACKGROUND    0x11
-#define COLOR_TASKBAR       0x70
-#define COLOR_WINDOW_ACTIVE 0x1F
-#define COLOR_WINDOW_INACTIVE 0x08
-#define COLOR_TEXT          0x0F
-#define COLOR_TEXT_DARK     0x08
-#define COLOR_BUTTON        0x3F
-#define COLOR_BUTTON_HOVER  0x2F
-#define COLOR_INPUT_BG      0x70
-#define COLOR_TITLE         0x1E
-#define COLOR_ACCENT        0x0B
-#define COLOR_ERROR         0x4F
-#define COLOR_SUCCESS       0x2F
-#define COLOR_OPERATION     0x6E
+// VGA 16-Color Palette (Foreground values)
+
+// Schwarz / Grau
+#define BLACK           0x00
+#define DARK_BLUE       0x01
+#define DARK_GREEN      0x02
+#define DARK_CYAN       0x03
+#define DARK_RED        0x04
+#define DARK_MAGENTA    0x05
+#define BROWN           0x06
+#define LIGHT_GRAY      0x07
+
+#define DARK_GRAY       0x08
+#define LIGHT_BLUE      0x09
+#define LIGHT_GREEN     0x0A
+#define LIGHT_CYAN      0x0B
+#define LIGHT_RED       0x0C
+#define LIGHT_MAGENTA  0x0D
+#define YELLOW          0x0E
+#define WHITE           0x0F
 
 #endif

@@ -4,8 +4,8 @@ echo Starte ZeroUX...
 set QEMU="C:\Program Files\qemu\qemu-system-x86_64.exe"
 set QEMU_IMG="C:\Program Files\qemu\qemu-img.exe"
 
-set ISO="D:\ZMC\ZeroOs\zeroUX.iso"
-set DISK="D:\ZMC\ZeroOs\zeroux_disk.qcow2"
+set ISO="D:\ZMC\ZeroUX\zeroUX.iso"
+set DISK="D:\ZMC\ZeroUX\zeroux_disk.qcow2"
 
 REM Disk anlegen, falls nicht vorhanden
 if not exist %DISK% (

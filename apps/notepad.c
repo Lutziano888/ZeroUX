@@ -2,58 +2,61 @@
 #include "../gui.h"
 #include "../widgets.h"
 #include "../string.h"
+#include "gui_colors.h"
 
+// =====================
 // State
+// =====================
 typedef struct {
     char text[200];
     int cursor;
     int active;
     int char_count;
     int line_count;
-    WindowStyle* current_theme;  // Aktuelles Theme
+    WindowStyle* current_theme;
 } NotepadState;
 
 static NotepadState notepad;
 
-// Styles
+// =====================
+// Styles (Calculator-like)
+// =====================
 static WidgetStyle STYLE_EDITOR;
-static WidgetStyle STYLE_STATUSBAR;
-static WidgetStyle STYLE_BTN_CLEAR;
-static WidgetStyle STYLE_BTN_SAVE;
+static WidgetStyle STYLE_NUM;
+static WidgetStyle STYLE_ACT;
+static WidgetStyle STYLE_OPS;
 
 static void setup_styles() {
-    STYLE_EDITOR.bg_color = 0x70;
-    STYLE_EDITOR.border_color = 0x70;
-    
-    STYLE_STATUSBAR.bg_color = 0x08;
-    STYLE_STATUSBAR.fg_color = 0x07;
-    
-    STYLE_BTN_CLEAR.bg_color = 0x0C;
-    STYLE_BTN_SAVE.bg_color = 0x0A;
+    STYLE_EDITOR.bg_color     = BLACK;
+    STYLE_EDITOR.fg_color     = WHITE;
+    STYLE_EDITOR.border_color = DARK_GRAY;
+
+    STYLE_NUM = (WidgetStyle){ LIGHT_GRAY, BLACK, 0, 0, 0 };
+    STYLE_OPS = (WidgetStyle){ LIGHT_BLUE, WHITE, 0, 0, 0 };
+    STYLE_ACT = (WidgetStyle){ LIGHT_RED,  WHITE, 0, 0, 0 };
 }
 
 static void update_stats() {
     notepad.char_count = 0;
     notepad.line_count = 1;
-    
+
     for (int i = 0; i < 200 && notepad.text[i]; i++) {
         notepad.char_count++;
-        if (notepad.text[i] == '\n') {
+        if (notepad.text[i] == '\n')
             notepad.line_count++;
-        }
     }
 }
 
+// =====================
+// Init
+// =====================
 void notepad_init() {
-    strcpy(notepad.text, "Click in text area to type...");
+    notepad.text[0] = '\0';
     notepad.cursor = 0;
     notepad.active = 0;
     update_stats();
-    
-    // Wähle ein Theme - hier kannst du ändern!
-    // Optionen: &WINDOW_BLUE, &WINDOW_DARK, &WINDOW_LIGHT, &WINDOW_GREEN, &WINDOW_PURPLE, &WINDOW_RED
-    notepad.current_theme = &WINDOW_LIGHT;
-    
+
+    notepad.current_theme = &WINDOW_DARK;
     setup_styles();
 }
 
@@ -65,115 +68,120 @@ void notepad_deactivate() {
     notepad.active = 0;
 }
 
+// =====================
+// Input
+// =====================
 void notepad_handle_backspace() {
     if (notepad.cursor > 0) {
         notepad.cursor--;
-        for (int i = notepad.cursor; i < 199; i++) {
+        for (int i = notepad.cursor; i < 199; i++)
             notepad.text[i] = notepad.text[i + 1];
-        }
         update_stats();
     }
 }
 
 void notepad_handle_char(char c) {
-    if (notepad.cursor < 199) {
-        if (c == '\n' || (c >= 32 && c <= 126)) {
-            for (int i = 199; i > notepad.cursor; i--) {
-                notepad.text[i] = notepad.text[i - 1];
-            }
-            notepad.text[notepad.cursor] = c;
-            notepad.cursor++;
-            notepad.text[notepad.cursor] = '\0';
-            update_stats();
-        }
+    if (!notepad.active) return;
+
+    if (notepad.cursor < 199 && (c == '\n' || (c >= 32 && c <= 126))) {
+        for (int i = 199; i > notepad.cursor; i--)
+            notepad.text[i] = notepad.text[i - 1];
+
+        notepad.text[notepad.cursor++] = c;
+        notepad.text[notepad.cursor] = '\0';
+        update_stats();
     }
 }
 
+// =====================
+// Draw
+// =====================
 void notepad_draw(int x, int y, int w, int h, int is_selected) {
-    // Zeichne Fenster mit Theme
     draw_window(x, y, w, h, " Notepad ", notepad.current_theme, is_selected);
-    
-    // Status
-    if (notepad.active && is_selected) {
-        draw_text_at(x + 2, y + 1, " [TYPING - ESC to stop] ", 0x2F);
-    } else {
-        draw_text_at(x + 2, y + 1, " [Click text to type] ", 0x0E);
-    }
-    
-    // Editor
-    draw_box(x + 2, y + 2, w - 4, 7, notepad.current_theme->content_bg);
-    
-    // Text rendern mit Theme-Farben
-    int line = y + 3;
-    int col = x + 3;
-    int start_col = x + 3;
-    int max_col = x + w - 4;
-    int max_line = y + 8;
-    
+
     unsigned short* VGA = (unsigned short*)0xB8000;
-    unsigned char text_color = notepad.current_theme->content_fg;
-    
+
+    // Status button
+    if (notepad.active)
+        widget_button_win10(x + 3, y + 1, 9, "EDITING", &STYLE_OPS);
+    else
+        widget_button_win10(x + 3, y + 1, 9, "READ", &STYLE_NUM);
+
+    // Editor area
+    int ex = x + 2;
+    int ey = y + 3;
+    int ew = w - 4;
+    int eh = 6;
+
+    for (int dy = 0; dy < eh; dy++)
+        for (int dx = 0; dx < ew; dx++)
+            VGA[(ey + dy) * 80 + ex + dx] = (0x00 << 8) | ' ';
+
+    // Text
+    int line = ey;
+    int col  = ex + 1;
+    int max_col = ex + ew - 1;
+
     for (int i = 0; i < 200 && notepad.text[i]; i++) {
         if (notepad.text[i] == '\n') {
             line++;
-            col = start_col;
-            if (line >= max_line) break;
+            col = ex + 1;
         } else {
-            if (col < max_col && col >= 0 && col < 80 && line >= 0 && line < 25) {
-                VGA[line * 80 + col] = (text_color << 8) | notepad.text[i];
+            if (col < max_col && line < ey + eh) {
+                VGA[line * 80 + col] = (0x0F << 8) | notepad.text[i];
             }
             col++;
             if (col >= max_col) {
                 line++;
-                col = start_col;
-                if (line >= max_line) break;
+                col = ex + 1;
             }
         }
+        if (line >= ey + eh) break;
     }
-    
-    // Statusbar
-    char stats[50];
-    strcpy(stats, "Chars:");
-    char num_buf[10];
-    int_to_str(notepad.char_count, num_buf);
-    strcat(stats, num_buf);
-    strcat(stats, " Lines:");
-    int_to_str(notepad.line_count, num_buf);
-    strcat(stats, num_buf);
-    
-    draw_text_at(x + 3, y + 9, stats, 0x07);
-    
+
+    // Status bar
+    int sy = y + 10;
+    for (int dx = 2; dx < w - 2; dx++)
+        VGA[sy * 80 + x + dx] = (0x08 << 8) | ' ';
+
+    char buf[40], n[10];
+    strcpy(buf, "Chars: ");
+    int_to_str(notepad.char_count, n);
+    strcat(buf, n);
+    strcat(buf, "  Lines: ");
+    int_to_str(notepad.line_count, n);
+    strcat(buf, n);
+
+    draw_text_at(x + 3, sy, buf, 0x08);
+
     // Buttons
-    widget_button(x + 3, y + 10, "Clear", &STYLE_BTN_CLEAR);
-    widget_button(x + 13, y + 10, "Save", &STYLE_BTN_SAVE);
-    widget_button(x + 22, y + 10, "Close", &STYLE_DEFAULT);
+    int by = y + 11;
+    widget_button_win10(x + 3,  by, 7, "Clear", &STYLE_ACT);
+    widget_button_win10(x + 12, by, 7, "Save",  &STYLE_OPS);
+    widget_button_win10(x + 21, by, 7, "Close", &STYLE_NUM);
 }
 
+// =====================
+// Click Handling (aligned)
+// =====================
 void notepad_handle_click(int cursor_x, int cursor_y, int win_x, int win_y) {
-    int rel_x = cursor_x - win_x;
-    int rel_y = cursor_y - win_y;
-    
-    // Clear Button
-    if (check_button_click(cursor_x, cursor_y, win_x + 3, win_y + 10, "Clear")) {
-        notepad.text[0] = '\0';
-        notepad.cursor = 0;
-        update_stats();
-    }
-    // Save Button
-    else if (check_button_click(cursor_x, cursor_y, win_x + 13, win_y + 10, "Save")) {
-        // TODO: Save
-    }
-    // Close Button
-    else if (check_button_click(cursor_x, cursor_y, win_x + 22, win_y + 10, "Close")) {
-        // TODO: Close
-    }
-    // Text Area Click
-    else if (rel_x >= 2 && rel_x <= 48 && rel_y >= 2 && rel_y <= 8) {
+    int rx = cursor_x - win_x;
+    int ry = cursor_y - win_y;
+
+    // Text area
+    if (rx >= 2 && rx <= 46 && ry >= 3 && ry <= 8) {
         notepad.active = 1;
-        if (strcmp(notepad.text, "Click in text area to type...") == 0) {
+        return;
+    }
+
+    // Buttons
+    if (ry >= 11 && ry <= 12) {
+        if (rx >= 3 && rx <= 9) {
             notepad.text[0] = '\0';
             notepad.cursor = 0;
             update_stats();
+        } else if (rx >= 21 && rx <= 27) {
+            notepad.active = 0;
         }
     }
 }
