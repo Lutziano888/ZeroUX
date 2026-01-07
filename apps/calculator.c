@@ -1,40 +1,17 @@
 #include "calculator.h"
-#include "../gui.h"
-#include "../widgets.h"
+#include "vbe.h"
 #include "../string.h"
-#include "gui_colors.h"
 
-// =====================
-// State
-// =====================
 typedef struct {
     char display[32];
     int value;
     int last_value;
     char operation;
     int new_number;
-    WindowStyle* current_theme;
 } CalcState;
 
 static CalcState calc;
 
-// =====================
-// Styles
-// =====================
-static WidgetStyle STYLE_DISPLAY;
-static WidgetStyle STYLE_NUM = { LIGHT_GRAY, BLACK, 0, 0, 0 };
-static WidgetStyle STYLE_OPS = { LIGHT_BLUE, WHITE, 0, 0, 0 };
-static WidgetStyle STYLE_ACT = { LIGHT_RED,  WHITE, 0, 0, 0 };
-
-static void setup_styles() {
-    STYLE_DISPLAY.bg_color     = BLACK;
-    STYLE_DISPLAY.fg_color     = WHITE;
-    STYLE_DISPLAY.border_color = DARK_GRAY;
-}
-
-// =====================
-// Logic
-// =====================
 static void calc_input_digit(int digit) {
     if (calc.new_number) {
         calc.value = digit;
@@ -65,9 +42,8 @@ static void calc_do_operation() {
 static void calc_set_operation(char op) {
     if (calc.operation && !calc.new_number)
         calc_do_operation();
-
     calc.last_value = calc.value;
-    calc.operation  = op;
+    calc.operation = op;
     calc.new_number = 1;
 }
 
@@ -87,109 +63,98 @@ static void calc_clear() {
     strcpy(calc.display, "0");
 }
 
-// =====================
-// Init
-// =====================
 void calculator_init() {
     strcpy(calc.display, "0");
     calc.value = 0;
     calc.last_value = 0;
     calc.operation = 0;
     calc.new_number = 1;
-    calc.current_theme = &WINDOW_DARK;
-
-    setup_styles();
 }
 
-// =====================
-// Draw
-// =====================
-void calculator_draw(int x, int y, int w, int h, int is_selected) {
-    draw_window(x, y, w, h, " Calculator ", calc.current_theme, is_selected);
-
-    // Display
-    unsigned short* VGA = (unsigned short*)0xB8000;
-    int display_y = y + 2;
-
-    for (int dy = 0; dy < 2; dy++)
-        for (int dx = 2; dx < w - 2; dx++)
-            VGA[(display_y + dy) * 80 + x + dx] = (0x00 << 8) | ' ';
-
-    int len = 0;
-    while (calc.display[len]) len++;
-
-    int start = x + w - 3 - len;
-    for (int i = 0; i < len; i++)
-        VGA[(display_y + 1) * 80 + start + i] = (0x0F << 8) | calc.display[i];
-
-    // Buttons
-    int bx = x + 2;
-    int by = y + 4;
-    int bw = 5;
-
-    // Row 1
-    widget_button_win10(bx,      by, bw, "7", &STYLE_NUM);
-    widget_button_win10(bx + 6,  by, bw, "8", &STYLE_NUM);
-    widget_button_win10(bx + 12, by, bw, "9", &STYLE_NUM);
-    widget_button_win10(bx + 18, by, bw, "/", &STYLE_OPS);
-
-    // Row 2
-    widget_button_win10(bx,      by + 2, bw, "4", &STYLE_NUM);
-    widget_button_win10(bx + 6,  by + 2, bw, "5", &STYLE_NUM);
-    widget_button_win10(bx + 12, by + 2, bw, "6", &STYLE_NUM);
-    widget_button_win10(bx + 18, by + 2, bw, "*", &STYLE_OPS);
-
-    // Row 3
-    widget_button_win10(bx,      by + 4, bw, "1", &STYLE_NUM);
-    widget_button_win10(bx + 6,  by + 4, bw, "2", &STYLE_NUM);
-    widget_button_win10(bx + 12, by + 4, bw, "3", &STYLE_NUM);
-    widget_button_win10(bx + 18, by + 4, bw, "-", &STYLE_OPS);
-
-    // Row 4
-    widget_button_win10(bx,      by + 6, bw, "C", &STYLE_ACT);
-    widget_button_win10(bx + 6,  by + 6, bw, "0", &STYLE_NUM);
-    widget_button_win10(bx + 12, by + 6, bw, "=", &STYLE_OPS);
-    widget_button_win10(bx + 18, by + 6, bw, "+", &STYLE_OPS);
-}
-
-// =====================
-// Click Handling (FIXED)
-// =====================
-void calculator_handle_click(int cursor_x, int cursor_y, int win_x, int win_y) {
-    int rel_x = cursor_x - win_x;
-    int rel_y = cursor_y - win_y;
-
-    int bx = 2;
-    int by = 4;
-    int bw = 5;
-    int bh = 2;
-
-    // Row 1
-    if (rel_y >= by && rel_y < by + bh) {
-        if      (rel_x >= bx      && rel_x < bx + bw)      calc_input_digit(7);
-        else if (rel_x >= bx + 6  && rel_x < bx + 6 + bw)  calc_input_digit(8);
-        else if (rel_x >= bx + 12 && rel_x < bx + 12 + bw) calc_input_digit(9);
-        else if (rel_x >= bx + 18 && rel_x < bx + 18 + bw) calc_set_operation('/');
-    }
-    // Row 2
-    else if (rel_y >= by + 2 && rel_y < by + 2 + bh) {
-        if      (rel_x >= bx      && rel_x < bx + bw)      calc_input_digit(4);
-        else if (rel_x >= bx + 6  && rel_x < bx + 6 + bw)  calc_input_digit(5);
-        else if (rel_x >= bx + 12 && rel_x < bx + 12 + bw) calc_input_digit(6);
-        else if (rel_x >= bx + 18 && rel_x < bx + 18 + bw) calc_set_operation('*');
-    }
-    // Row 3
-    else if (rel_y >= by + 4 && rel_y < by + 4 + bh) {
-        if      (rel_x >= bx      && rel_x < bx + bw)      calc_input_digit(1);
-        else if (rel_x >= bx + 6  && rel_x < bx + 6 + bw)  calc_input_digit(2);
-        else if (rel_x >= bx + 12 && rel_x < bx + 12 + bw) calc_input_digit(3);
-        else if (rel_x >= bx + 18 && rel_x < bx + 18 + bw) calc_set_operation('-');
-    }
-    // Row 4
-    else if (rel_y >= by + 6 && rel_y < by + 6 + bh) {
-        if      (rel_x >= bx      && rel_x < bx + bw)      calc_clear();
-        else if (rel_x >= bx + 6  && rel_x < bx + 6 + bw)  calc_input_digit(0);
-        else if (rel_x >= bx + 12 && rel_x < bx + 12 + bw) calc_equals();
-        else if (rel_x >= bx + 18 && rel_x < bx + 18 + bw) calc_set_operation('+');
+void calculator_draw_vbe(int x, int y, int w, int h, int is_selected) {
+    // Display area
+    vbe_fill_rect(x + 10, y + 10, w - 20, 50, VBE_BLACK);
+    vbe_draw_rect(x + 10, y + 10, w - 20, 50, VBE_GRAY);
+    
+    // Display text (right-aligned)
+    int text_len = 0;
+    while (calc.display[text_len]) text_len++;
+    int text_x = x + w - 30 - (text_len * 8);
+    vbe_draw_text(text_x, y + 25, calc.display, VBE_WHITE, VBE_TRANSPARENT);
+    
+    // Button layout
+    const char* buttons[4][4] = {
+        {"7", "8", "9", "/"},
+        {"4", "5", "6", "*"},
+        {"1", "2", "3", "-"},
+        {"C", "0", "=", "+"}
+    };
+    
+    unsigned int colors[4] = {
+        0x00505050, 0x00505050, 0x00505050, 0x000078D7,
+    };
+    
+    int btn_w = (w - 60) / 4;
+    int btn_h = (h - 100) / 4;
+    
+    for (int row = 0; row < 4; row++) {
+        for (int col = 0; col < 4; col++) {
+            int btn_x = x + 10 + col * (btn_w + 5);
+            int btn_y = y + 70 + row * (btn_h + 5);
+            
+            unsigned int color = (col == 3) ? colors[3] : 
+                                (row == 3 && col == 0) ? 0x00E81123 : colors[0];
+            
+            vbe_fill_rect(btn_x, btn_y, btn_w, btn_h, color);
+            vbe_draw_rect(btn_x, btn_y, btn_w, btn_h, VBE_LIGHT_GRAY);
+            
+            // Center text
+            int text_x = btn_x + (btn_w - 8) / 2;
+            int text_y = btn_y + (btn_h - 16) / 2;
+            vbe_draw_text(text_x, text_y, buttons[row][col], VBE_WHITE, VBE_TRANSPARENT);
+        }
     }
 }
+
+void calculator_handle_click_vbe(int rel_x, int rel_y) {
+    if (rel_y < 70) return; // Not in button area
+    
+    // Must match the dimensions used in calculator_draw_vbe
+    // For Calculator window: 400x400 -> content area 400x370 (after 30px title)
+    // btn_w = (w - 60) / 4 = (400 - 60) / 4 = 85
+    // btn_h = (h - 100) / 4 = (370 - 100) / 4 = 67
+    int btn_w = 85;
+    int btn_h = 67;
+    
+    int col = (rel_x - 10) / (btn_w + 5);
+    int row = (rel_y - 70) / (btn_h + 5);
+    
+    if (col < 0 || col > 3 || row < 0 || row > 3) return;
+    
+    // Button mapping
+    const int digits[4][4] = {
+        {7, 8, 9, -1},
+        {4, 5, 6, -2},
+        {1, 2, 3, -3},
+        {-4, 0, -5, -6}
+    };
+    
+    int action = digits[row][col];
+    
+    if (action >= 0) {
+        calc_input_digit(action);
+    } else {
+        switch (action) {
+            case -1: calc_set_operation('/'); break;
+            case -2: calc_set_operation('*'); break;
+            case -3: calc_set_operation('-'); break;
+            case -4: calc_clear(); break;
+            case -5: calc_equals(); break;
+            case -6: calc_set_operation('+'); break;
+        }
+    }
+}
+
+// Legacy compatibility
+void calculator_draw(int x, int y, int w, int h, int is_selected) {}
+void calculator_handle_click(int cx, int cy, int wx, int wy) {}

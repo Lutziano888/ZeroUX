@@ -33,6 +33,37 @@ int strncmp(const char* a, const char* b, int n) {
     return (n < 0) ? 0 : (*(unsigned char*)a - *(unsigned char*)b);
 }
 
+/* ----------- String Utilities ----------- */
+const char* strstr(const char* haystack, const char* needle) {
+    if (*needle == '\0')
+        return haystack;
+    
+    while (*haystack) {
+        const char* h = haystack;
+        const char* n = needle;
+        
+        while (*h && *n && *h == *n) {
+            h++;
+            n++;
+        }
+        
+        if (*n == '\0')
+            return haystack;
+        
+        haystack++;
+    }
+    
+    return 0;
+}
+
+void memcpy(void* dest, const void* src, int n) {
+    char* d = (char*)dest;
+    const char* s = (const char*)src;
+    while (n--) {
+        *d++ = *s++;
+    }
+}
+
 /* ----------- Zahl → String ----------- */
 void int_to_str(int num, char* out) {
     char tmp[12];

@@ -1,297 +1,344 @@
 #include "gui.h"
-#include "vga.h"
+#include "vbe.h"
 #include "keyboard.h"
+#include "mouse.h"
 #include "string.h"
-#include "port.h"
+#include "rtc.h"
+#include "ethernet.h"
 #include "apps/calculator.h"
 #include "apps/notepad.h"
 #include "apps/welcome.h"
+#include "apps/filemanager.h"
+#include "apps/google_browser.h"
 
-#define GUI_WIDTH 80
-#define GUI_HEIGHT 25
-
-static unsigned short* VGA = (unsigned short*)0xB8000;
 static int selected_window = 0;
-static int z_order[3] = {0, 1, 2};
+static int z_order[5] = {0, 1, 2, 3, 4};
 
-// Cursor
-static int cursor_x = 40;
-static int cursor_y = 12;
-static unsigned short saved_char = 0;
-static int cursor_visible = 0;
+// Mouse cursor
+static int cursor_x = 512;
+static int cursor_y = 384;
+static int mouse_visible = 1;
 
-static void set_char(int x, int y, unsigned char ch, unsigned char color) {
-    if (x >= 0 && x < GUI_WIDTH && y >= 0 && y < GUI_HEIGHT) {
-        VGA[y * GUI_WIDTH + x] = (color << 8) | ch;
+// Window positions
+typedef struct {
+    int x, y, w, h;
+    int visible;
+} Window;
+
+static Window windows[5] = {
+    {100, 100, 600, 400, 1},  // Welcome
+    {150, 150, 500, 450, 1},  // Notepad
+    {250, 200, 400, 400, 1},  // Calculator
+    {50, 50, 450, 500, 1},    // File Manager
+    {200, 80, 700, 450, 1}    // Google Browser
+};
+
+void draw_shadow(int x, int y, int w, int h) {
+    unsigned int shadow = 0x30000000; // Semi-transparent black
+    for (int sy = 0; sy < 8; sy++) {
+        for (int sx = 0; sx < w; sx++) {
+            unsigned int base = vbe_get_pixel(x + sx + 8, y + h + sy);
+            // Simple alpha blend simulation
+            vbe_set_pixel(x + sx + 8, y + h + sy, 
+                ((base >> 1) & 0x7F7F7F7F));
+        }
     }
-}
-
-void draw_box(int x, int y, int w, int h, unsigned char color) {
-    // Ecken
-    set_char(x, y, 0xDA, color);
-    set_char(x + w - 1, y, 0xBF, color);
-    set_char(x, y + h - 1, 0xC0, color);
-    set_char(x + w - 1, y + h - 1, 0xD9, color);
-    
-    // Horizontale Linien
-    for (int i = 1; i < w - 1; i++) {
-        set_char(x + i, y, 0xC4, color);
-        set_char(x + i, y + h - 1, 0xC4, color);
-    }
-    
-    // Vertikale Linien und Füllung
-    for (int j = 1; j < h - 1; j++) {
-        set_char(x, y + j, 0xB3, color);
-        set_char(x + w - 1, y + j, 0xB3, color);
-        // Innenfläche leeren
-        for (int i = 1; i < w - 1; i++) {
-            set_char(x + i, y + j, ' ', color & 0xF0);
+    for (int sy = 0; sy < h; sy++) {
+        for (int sx = 0; sx < 8; sx++) {
+            unsigned int base = vbe_get_pixel(x + w + sx, y + sy + 8);
+            vbe_set_pixel(x + w + sx, y + sy + 8, 
+                ((base >> 1) & 0x7F7F7F7F));
         }
     }
 }
 
-void draw_text_at(int x, int y, const char* text, unsigned char color) {
-    int i = 0;
-    while (text[i] && x + i < GUI_WIDTH) {
-        set_char(x + i, y, text[i], color);
-        i++;
-    }
-}
-
-static int str_len(const char* s) {
-    int len = 0;
-    while (s[len]) len++;
-    return len;
-}
-
-void draw_button(int x, int y, const char* text, unsigned char color) {
-    set_char(x, y, '[', color);
-    draw_text_at(x + 1, y, text, color);
-    set_char(x + 1 + str_len(text), y, ']', color);
-}
-
-static void hide_cursor() {
-    if (cursor_visible) {
-        VGA[cursor_y * GUI_WIDTH + cursor_x] = saved_char;
-        cursor_visible = 0;
-    }
-}
-
-static void show_cursor() {
-    if (cursor_x >= 0 && cursor_x < GUI_WIDTH && cursor_y >= 0 && cursor_y < GUI_HEIGHT) {
-        saved_char = VGA[cursor_y * GUI_WIDTH + cursor_x];
-        VGA[cursor_y * GUI_WIDTH + cursor_x] = (0xF0 << 8) | 0xDB;
-        cursor_visible = 1;
-    }
-}
-
-static void move_cursor(int dx, int dy) {
-    hide_cursor();
-    cursor_x += dx;
-    cursor_y += dy;
+void draw_window_modern(int x, int y, int w, int h, const char* title, int is_active) {
+    // Shadow
+    draw_shadow(x, y, w, h);
     
-    if (cursor_x < 0) cursor_x = 0;
-    if (cursor_x >= GUI_WIDTH) cursor_x = GUI_WIDTH - 1;
-    if (cursor_y < 0) cursor_y = 0;
-    if (cursor_y >= GUI_HEIGHT) cursor_y = GUI_HEIGHT - 1;
+    // Window background
+    vbe_fill_rect(x, y, w, h, WIN10_PANEL);
     
-    show_cursor();
+    // Title bar
+    unsigned int title_color = is_active ? WIN10_ACCENT : WIN10_BORDER;
+    vbe_fill_rect(x, y, w, 30, title_color);
+    
+    // Title text
+    vbe_draw_text(x + 10, y + 7, title, WIN10_TEXT, VBE_TRANSPARENT);
+    
+    // Window buttons (Close)
+    int btn_y = y + 5;
+    vbe_fill_rect(x + w - 45, btn_y, 20, 20, 0x00E81123); // Close
+    vbe_draw_text(x + w - 40, btn_y + 2, "X", VBE_WHITE, VBE_TRANSPARENT);
+    
+    // Border
+    vbe_draw_rect(x, y, w, h, is_active ? WIN10_ACCENT : WIN10_BORDER);
+}
+
+void draw_button_modern(int x, int y, int w, int h, const char* text, unsigned int color) {
+    // Button background
+    vbe_fill_rect(x, y, w, h, color);
+    
+    // Border
+    vbe_draw_rect(x, y, w, h, 0x00666666);
+    
+    // Text centered
+    int text_len = 0;
+    while (text[text_len]) text_len++;
+    int text_x = x + (w - text_len * 8) / 2;
+    int text_y = y + (h - 16) / 2;
+    
+    vbe_draw_text(text_x, text_y, text, VBE_WHITE, VBE_TRANSPARENT);
+}
+
+void draw_cursor() {
+    // Draw a simple point cursor (small filled circle)
+    vbe_fill_circle(cursor_x, cursor_y, 4, VBE_YELLOW);
+    vbe_draw_circle(cursor_x, cursor_y, 4, VBE_WHITE);
 }
 
 void gui_init() {
-    for (int i = 0; i < GUI_WIDTH * GUI_HEIGHT; i++) {
-        VGA[i] = (0x01 << 8) | ' ';
-    }
+    vbe_init();
+    vbe_clear(WIN10_BG);
     
+    ethernet_init();
+    mouse_init();
     calculator_init();
     notepad_init();
     welcome_init();
+    filemanager_init();
+    google_browser_init();
 }
 
 void gui_draw_desktop() {
-    // Desktop-Hintergrund
-    for (int i = 0; i < GUI_WIDTH * GUI_HEIGHT; i++) {
-        VGA[i] = (0x11 << 8) | 0xB0;
+    // Desktop background gradient
+    for (int y = 0; y < vbe_get_height(); y++) {
+        unsigned int color = 0x001E1E1E + (y / 4);
+        vbe_fill_rect(0, y, vbe_get_width(), 1, color);
     }
     
     // Taskbar
-    for (int x = 0; x < GUI_WIDTH; x++) {
-        set_char(x, 24, ' ', 0x70);
-    }
+    vbe_fill_rect(0, 0, vbe_get_width(), 40, WIN10_PANEL);
+    vbe_draw_rect(0, 0, vbe_get_width(), 40, WIN10_BORDER);
     
-    draw_text_at(2, 24, " START ", 0x70);
-    draw_text_at(30, 0, " zeroUX Desktop ", 0x1F);
+    // Start button
+    draw_button_modern(10, 5, 80, 30, "START", WIN10_ACCENT);
+    
+    // Ethernet status indicator (green/red dot)
+    unsigned int eth_color = ethernet_is_connected() ? 0x0000FF00 : 0x00FF0000;  // Green or Red
+    int dot_x = vbe_get_width() - 100;
+    int dot_y = 20;
+    vbe_fill_circle(dot_x, dot_y, 6, eth_color);
+    vbe_draw_circle(dot_x, dot_y, 6, 0x00FFFFFF);  // White border
+    
+    // System tray with real time
+    int hour, min, sec;
+    rtc_get_time(&hour, &min, &sec);
+    char time_str[16];
+    int_to_str(hour, time_str);
+    int len = 0;
+    while (time_str[len]) len++;
+    time_str[len] = ':';
+    time_str[len + 1] = '0' + (min / 10);
+    time_str[len + 2] = '0' + (min % 10);
+    time_str[len + 3] = '\0';
+    vbe_draw_text(vbe_get_width() - 60, 15, time_str, VBE_WHITE, VBE_TRANSPARENT);
 }
 
 void gui_draw_window(int id) {
-    int is_selected = (id == selected_window);
+    Window* w = &windows[id];
+    if (!w->visible) return;
+    
+    int is_active = (id == selected_window);
     
     if (id == 0) {
-        welcome_draw(10, 3, 60, 12, is_selected);
+        draw_window_modern(w->x, w->y, w->w, w->h, "Welcome", is_active);
+        welcome_draw_vbe(w->x, w->y + 30, w->w, w->h - 30, is_active);
     } else if (id == 1) {
-        notepad_draw(15, 8, 50, 13, is_selected);
+        draw_window_modern(w->x, w->y, w->w, w->h, "Notepad", is_active);
+        notepad_draw_vbe(w->x, w->y + 30, w->w, w->h - 30, is_active);
     } else if (id == 2) {
-        calculator_draw(25, 10, 30, 12, is_selected);
+        draw_window_modern(w->x, w->y, w->w, w->h, "Calculator", is_active);
+        calculator_draw_vbe(w->x, w->y + 30, w->w, w->h - 30, is_active);
+    } else if (id == 3) {
+        draw_window_modern(w->x, w->y, w->w, w->h, "File Manager", is_active);
+        filemanager_draw_vbe(w->x, w->y + 30, w->w, w->h - 30, is_active);
+    } else if (id == 4) {
+        draw_window_modern(w->x, w->y, w->w, w->h, "Google Browser", is_active);
+        google_browser_draw_vbe(w->x, w->y + 30, w->w, w->h - 30, is_active);
+    }
+}
+
+void gui_draw_all_windows() {
+    for (int i = 0; i < 5; i++) {
+        int id = z_order[i];
+        if (windows[id].visible) {
+            gui_draw_window(id);
+        }
     }
 }
 
 static void bring_to_front(int id) {
     int found_idx = -1;
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < 5; i++) {
         if (z_order[i] == id) {
             found_idx = i;
             break;
         }
     }
-
+    
     if (found_idx != -1) {
-        for (int i = found_idx; i < 2; i++) {
+        for (int i = found_idx; i < 4; i++) {
             z_order[i] = z_order[i + 1];
         }
-        z_order[2] = id;
+        z_order[4] = id;
     }
 }
 
-void gui_draw_all_windows() {
-    // Zeichne Fenster in Z-Order
-    for (int i = 0; i < 3; i++) {
-        gui_draw_window(z_order[i]);
+static int check_window_click(int mx, int my) {
+    for (int i = 3; i >= 0; i--) {
+        int id = z_order[i];
+        Window* w = &windows[id];
+        
+        if (mx >= w->x && mx < w->x + w->w &&
+            my >= w->y && my < w->y + w->h) {
+            return id;
+        }
     }
-    
-    // Taskbar-Info (optional ausblenden)
-    // const char* windows[] = {"Welcome", "Notepad", "Calculator"};
-    // draw_text_at(15, 24, "Active: ", 0x70);
-    // draw_text_at(23, 24, windows[selected_window], 0x74);
+    return -1;
 }
 
-int check_button_click(int cx, int cy, int bx, int by, const char* text) {
-    int btn_width = str_len(text) + 2;
-    return (cx >= bx && cx < bx + btn_width && cy == by);
+static int check_close_button(int mx, int my, Window* w) {
+    // Close button: x + w - 45 to x + w - 25, y to y + 20
+    if (mx >= w->x + w->w - 45 && mx < w->x + w->w - 25 &&
+        my >= w->y + 5 && my < w->y + 25) {
+        return 1;
+    }
+    return 0;
 }
 
 void gui_run() {
     gui_init();
     gui_draw_desktop();
     gui_draw_all_windows();
+    draw_cursor();
     
-    draw_text_at(35, 24, "Arrows=Move ENTER=Click TAB=Switch ESC=Exit", 0x70);
-    
-    cursor_x = 40;
-    cursor_y = 12;
-    show_cursor();
+    int move_step = 15;
     
     while (1) {
-        unsigned char sc = keyboard_read();
-        
-        if (sc & 0x80) continue;
-        
-        // Notepad Typing Mode
-        if (notepad_is_active()) {
+        // Keyboard handling
+        unsigned char sc = keyboard_read_nonblock();
+        if (sc && !(sc & 0x80)) {
+            int needs_redraw = 0;
+            
             if (sc == 0x01) { // ESC
-                notepad_deactivate();
-                hide_cursor();
-                gui_draw_desktop();
-                gui_draw_all_windows();
-                show_cursor();
-            } else if (sc == 0x0E) { // Backspace
+                return;
+            }
+            
+            // TAB - switch windows
+            if (sc == 0x0F) {
+                selected_window = (selected_window + 1) % 5;
+                bring_to_front(selected_window);
+                needs_redraw = 1;
+            }
+            
+            // Arrow keys - move cursor
+            if (sc == 0x48) { // Up arrow
+                cursor_y -= move_step;
+                if (cursor_y < 0) cursor_y = 0;
+                needs_redraw = 1;
+            }
+            else if (sc == 0x50) { // Down arrow
+                cursor_y += move_step;
+                if (cursor_y >= vbe_get_height()) cursor_y = vbe_get_height() - 1;
+                needs_redraw = 1;
+            }
+            else if (sc == 0x4B) { // Left arrow
+                cursor_x -= move_step;
+                if (cursor_x < 0) cursor_x = 0;
+                needs_redraw = 1;
+            }
+            else if (sc == 0x4D) { // Right arrow
+                cursor_x += move_step;
+                if (cursor_x >= vbe_get_width()) cursor_x = vbe_get_width() - 1;
+                needs_redraw = 1;
+            }
+            
+            // Backspace for Notepad
+            if (sc == 0x0E && selected_window == 1) { // Backspace
                 notepad_handle_backspace();
-                hide_cursor();
+                needs_redraw = 1;
+            }
+            
+            // Enter - click on window under cursor or send to apps
+            if (sc == 0x1C) { // Enter
+                int clicked = check_window_click(cursor_x, cursor_y);
+                if (clicked != -1) {
+                    selected_window = clicked;
+                    bring_to_front(clicked);
+                    
+                    Window* w = &windows[clicked];
+                    
+                    // Check if close button was clicked
+                    if (check_close_button(cursor_x, cursor_y, w)) {
+                        w->visible = 0;
+                        needs_redraw = 1;
+                    }
+                    // Otherwise, handle window content click
+                    else {
+                        int rel_x = cursor_x - w->x;
+                        int rel_y = cursor_y - w->y - 30;
+                        
+                        if (clicked == 0) {
+                            welcome_handle_click_vbe(rel_x, rel_y);
+                        } else if (clicked == 1) {
+                            notepad_handle_click_vbe(rel_x, rel_y);
+                        } else if (clicked == 2) {
+                            calculator_handle_click_vbe(rel_x, rel_y);
+                        } else if (clicked == 3) {
+                            filemanager_handle_click_vbe(rel_x, rel_y);
+                        } else if (clicked == 4) {
+                            google_browser_handle_click_vbe(rel_x, rel_y);
+                        }
+                        needs_redraw = 1;
+                    }
+                }
+                // Send Enter to Notepad if active
+                if (selected_window == 1) {
+                    notepad_handle_char('\n');
+                    needs_redraw = 1;
+                }
+            }
+            // Spacebar or other text input for Notepad
+            else if (sc == 0x39) { // Spacebar
+                if (selected_window == 1) {
+                    notepad_handle_char(' ');
+                    needs_redraw = 1;
+                }
+            }
+            // Convert scancode to ASCII for text input
+            else {
+                char ascii = scancode_to_ascii(sc);
+                if (ascii && selected_window == 1) {
+                    notepad_handle_char(ascii);
+                    needs_redraw = 1;
+                }
+            }
+            
+            if (needs_redraw) {
                 gui_draw_desktop();
                 gui_draw_all_windows();
-                show_cursor();
-            } else {
-                char c = scancode_to_ascii(sc);
-                if (c) {
-                    notepad_handle_char(c);
-                    hide_cursor();
-                    gui_draw_desktop();
-                    gui_draw_all_windows();
-                    show_cursor();
-                }
+                draw_cursor();
             }
-            continue;
         }
         
-        // Normal Mode
-        if (sc == 0x01) { // ESC = Exit
-            hide_cursor();
-            for (int i = 0; i < 80 * 25; i++) {
-                VGA[i] = 0x0720;
-            }
-            outb(0x3D4, 0x0F);
-            outb(0x3D5, 0);
-            outb(0x3D4, 0x0E);
-            outb(0x3D5, 0);
-            return;
-        }
-        
-        // TAB = Switch Window
-        if (sc == 0x0F) {
-            selected_window = (selected_window + 1) % 3;
-            hide_cursor();
-            gui_draw_desktop();
-            gui_draw_all_windows();
-            show_cursor();
-            continue;
-        }
-        
-        // Pfeiltasten
-        if (sc == 0x48) move_cursor(0, -1);
-        else if (sc == 0x50) move_cursor(0, 1);
-        else if (sc == 0x4B) move_cursor(-1, 0);
-        else if (sc == 0x4D) move_cursor(1, 0);
-        
-        // ENTER = Click
-        else if (sc == 0x1C) {
-            int clicked_window = -1;
-
-            // Welches Fenster wurde angeklickt?
-            for (int i = 2; i >= 0; i--) {
-                int id = z_order[i];
-                int win_x, win_y, win_w, win_h;
-                
-                if (id == 0) { 
-                    win_x = 10; win_y = 3; win_w = 60; win_h = 12; 
-                } else if (id == 1) { 
-                    win_x = 15; win_y = 8; win_w = 50; win_h = 13; 
-                } else { 
-                    win_x = 25; win_y = 10; win_w = 30; win_h = 12; 
-                }
-
-                if (cursor_x >= win_x && cursor_x < win_x + win_w && 
-                    cursor_y >= win_y && cursor_y < win_y + win_h) {
-                    clicked_window = id;
-                    break; 
-                }
-            }
-
-            if (clicked_window != -1) {
-                selected_window = clicked_window;
-                bring_to_front(clicked_window);
-            }
-
-            // App-Handler aufrufen
-            if (selected_window == 0) {
-                welcome_handle_click(cursor_x, cursor_y, 10, 3);
-            } else if (selected_window == 1) {
-                notepad_handle_click(cursor_x, cursor_y, 15, 8);
-            } else if (selected_window == 2) {
-                calculator_handle_click(cursor_x, cursor_y, 25, 10);
-            }
-
-            hide_cursor();
-            gui_draw_desktop();
-            gui_draw_all_windows();
-            show_cursor();
-        }
+        // Small delay to prevent CPU spinning
+        for (volatile int i = 0; i < 10000; i++);
     }
 }
 
-// Dummy-Funktionen
-void gui_set_pixel(int x, int y, unsigned char color) {}
-void gui_draw_rect(int x, int y, int w, int h, unsigned char color) {}
-void gui_draw_text(int x, int y, const char* text, unsigned char color) {}
-int gui_create_window(int x, int y, int w, int h, const char* title, unsigned char color) { return 0; }
-void gui_close_window(int id) {}
-void gui_update_mouse(int x, int y) {}
-void gui_draw_mouse() {}
+// Compatibility stubs
+void draw_box(int x, int y, int w, int h, unsigned char color) {}
+void draw_text_at(int x, int y, const char* text, unsigned char color) {}
+void draw_button(int x, int y, const char* text, unsigned char color) {}
+int check_button_click(int cx, int cy, int bx, int by, const char* text) { return 0; }
