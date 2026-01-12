@@ -25,6 +25,10 @@ gcc -m32 -c apps/notepad.c -o build/apps/notepad.o -ffreestanding -nostdlib -nos
 gcc -m32 -c apps/welcome.c -o build/apps/welcome.o -ffreestanding -nostdlib -nostdinc -fno-builtin -fno-stack-protector -I. || exit 1
 gcc -m32 -c apps/filemanager.c -o build/apps/filemanager.o -ffreestanding -nostdlib -nostdinc -fno-builtin -fno-stack-protector -I. || exit 1
 gcc -m32 -c apps/google_browser.c -o build/apps/google_browser.o -ffreestanding -nostdlib -nostdinc -fno-builtin -fno-stack-protector -I. || exit 1
+gcc -m32 -c apps/memtest_app.c -o build/apps/memtest_app.o -ffreestanding -nostdlib -nostdinc -fno-builtin -fno-stack-protector -I. || exit 1
+gcc -m32 -c apps/python_interpreter.c -o build/apps/python_interpreter.o -ffreestanding -nostdlib -nostdinc -fno-builtin -fno-stack-protector -I. || exit 1
+gcc -m32 -c apps/python_ide.c -o build/apps/python_ide.o -ffreestanding -nostdlib -nostdinc -fno-builtin -fno-stack-protector -I. || exit 1
+gcc -m32 -c apps/texteditor.c -o build/apps/texteditor.o -ffreestanding -nostdlib -nostdinc -fno-builtin -fno-stack-protector -I. || exit 1
 
 # Assemble boot code
 echo "Assembling boot..."
@@ -49,7 +53,11 @@ ld -m elf_i386 -T linker.ld -o build/kernel.elf \
     build/apps/notepad.o \
     build/apps/welcome.o \
     build/apps/filemanager.o \
-    build/apps/google_browser.o || exit 1
+    build/apps/memtest_app.o \
+    build/apps/google_browser.o \
+    build/apps/python_interpreter.o \
+    build/apps/python_ide.o \
+    build/apps/texteditor.o || exit 1
 
 # Create ISO
 echo "Creating ISO..."

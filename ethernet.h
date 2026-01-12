@@ -12,6 +12,7 @@ typedef struct {
 } IP_Address;
 
 // Ethernet frame structure
+#pragma pack(push, 1)
 typedef struct {
     MAC_Address dest_mac;
     MAC_Address src_mac;
@@ -19,6 +20,7 @@ typedef struct {
     unsigned char payload[1500];
     unsigned short length;
 } EthernetFrame;
+#pragma pack(pop)
 
 // Initialization
 void ethernet_init();
@@ -28,6 +30,9 @@ MAC_Address ethernet_get_mac();
 
 // Get IP address
 IP_Address ethernet_get_ip();
+
+// Set IP address (for DHCP)
+void ethernet_set_ip(unsigned char ip[4]);
 
 // Send Ethernet frame
 int ethernet_send_frame(EthernetFrame* frame);

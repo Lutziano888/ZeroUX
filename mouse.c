@@ -1,147 +1,108 @@
 #include "mouse.h"
 #include "port.h"
 
-static int mouse_x = 40;
-static int mouse_y = 12;
-static unsigned char mouse_buttons = 0;
-static int mouse_cycle = 0;
-static char mouse_byte[3];
-static int initialized = 0;
-static int error_count = 0;
+#define MOUSE_PORT_DATA    0x60
+#define MOUSE_PORT_STATUS  0x64
+#define MOUSE_PORT_CMD     0x64
 
-#define MAX_ERRORS 100
-
-// Safe wait mit Timeout
-static int mouse_wait(unsigned char type, int timeout) {
-    if (type == 0) {
-        while (timeout-- > 0) {
-            if ((inb(0x64) & 1) == 1) return 1;
+static void mouse_wait(unsigned char type) {
+    int timeout = 100000;
+    if (type == 0) { // Warten auf Daten
+        while (timeout--) {
+            if ((inb(MOUSE_PORT_STATUS) & 1) == 1) return;
         }
-    } else {
-        while (timeout-- > 0) {
-            if ((inb(0x64) & 2) == 0) return 1;
+    } else { // Warten auf Signal
+        while (timeout--) {
+            if ((inb(MOUSE_PORT_STATUS) & 2) == 0) return;
         }
     }
-    return 0;
 }
 
 static void mouse_write(unsigned char data) {
-    if (!mouse_wait(1, 1000)) return;
-    outb(0x64, 0xD4);
-    if (!mouse_wait(1, 1000)) return;
-    outb(0x60, data);
+    mouse_wait(1);
+    outb(MOUSE_PORT_CMD, 0xD4); // CPU sagt: Nächstes Byte ist für die Maus
+    mouse_wait(1);
+    outb(MOUSE_PORT_DATA, data);
 }
 
 static unsigned char mouse_read() {
-    if (!mouse_wait(0, 1000)) return 0xFF;
-    return inb(0x60);
+    mouse_wait(0);
+    return inb(MOUSE_PORT_DATA);
 }
 
 void mouse_init() {
-    // Versuche Maus zu initialisieren
-    mouse_wait(1, 5000);
-    outb(0x64, 0xA8);
+    unsigned char status;
+
+    // 0. IRQ 12 am PIC (Interrupt Controller) maskieren
+    // Das ist der wichtigste Schutz gegen Crashes! Wir sagen der CPU: "Ignoriere die Maus-Leitung komplett".
+    // Slave PIC Data Port ist 0xA1. IRQ 12 ist Bit 4 (0x10).
+    outb(0xA1, inb(0xA1) | 0x10);
+
+    // Puffer leeren, falls noch alte Daten da sind, die einen Interrupt auslösen könnten
+    while(inb(MOUSE_PORT_STATUS) & 0x01) {
+        inb(MOUSE_PORT_DATA);
+    }
+
+    // 1. Maus-Controller aktivieren
+    mouse_wait(1);
+    outb(MOUSE_PORT_CMD, 0xA8);
+
+    // 2. Interrupts DEAKTIVIEREN (Wichtig gegen Crashes!)
+    mouse_wait(1);
+    outb(MOUSE_PORT_CMD, 0x20); // Status lesen
+    mouse_wait(0);
+    status = inb(MOUSE_PORT_DATA);
     
-    mouse_wait(1, 5000);
-    outb(0x64, 0x20);
-    unsigned char status = mouse_read();
+    status &= ~(1 << 1); // IRQ 12 (Maus) ausschalten -> Wir nutzen Polling
+    status &= ~(1 << 5); // Maus-Clock einschalten (Bit löschen = an)
     
-    status |= 2;
-    mouse_wait(1, 5000);
-    outb(0x64, 0x60);
-    mouse_wait(1, 5000);
-    outb(0x60, status);
-    
-    mouse_write(0xF6);
-    mouse_read();
-    
-    mouse_write(0xF4);
-    mouse_read();
-    
-    initialized = 1;
-    error_count = 0;
+    mouse_wait(1);
+    outb(MOUSE_PORT_CMD, 0x60); // Status schreiben
+    mouse_wait(1);
+    outb(MOUSE_PORT_DATA, status);
+
+    // 3. Maus resetten und Defaults setzen
+    mouse_write(0xFF); // Reset
+    mouse_read();      // ACK
+    mouse_read();      // 0xAA (Self-test passed)
+    mouse_read();      // 0x00 (Mouse ID)
+
+    mouse_write(0xF6); // Defaults
+    mouse_read();      // ACK
+
+    mouse_write(0xF4); // Datenübertragung aktivieren
+    mouse_read();      // ACK
 }
 
-void mouse_update() {
-    // Wenn zu viele Fehler: Maus als defekt markieren
-    if (error_count > MAX_ERRORS) {
-        initialized = 0;
-        return;
-    }
+int mouse_read_packet(int* dx, int* dy, int* buttons) {
+    unsigned char status = inb(MOUSE_PORT_STATUS);
     
-    if (!initialized) return;
-    
-    // Prüfe ob überhaupt Daten da sind
-    unsigned char status = inb(0x64);
-    if ((status & 0x01) == 0) return; // Keine Daten
-    
-    // Prüfe ob von Maus (nicht Keyboard)
-    if ((status & 0x20) == 0) {
-        // Von Keyboard, nicht Maus - verwerfen
-        inb(0x60); // Daten lesen und ignorieren
-        return;
-    }
-    
-    unsigned char data = inb(0x60);
-    
-    switch (mouse_cycle) {
-        case 0:
-            // Byte 0: Flags
-            if (!(data & 0x08)) {
-                // Bit 3 nicht gesetzt = ungültig
-                error_count++;
-                return;
-            }
-            mouse_byte[0] = data;
-            mouse_cycle = 1;
-            break;
-            
-        case 1:
-            // Byte 1: X-Movement
-            mouse_byte[1] = data;
-            mouse_cycle = 2;
-            break;
-            
-        case 2:
-            // Byte 2: Y-Movement
-            mouse_byte[2] = data;
-            mouse_cycle = 0;
-            
-            // Buttons
-            mouse_buttons = mouse_byte[0] & 0x07;
-            
-            // Movement
-            int delta_x = (int)mouse_byte[1];
-            int delta_y = (int)mouse_byte[2];
-            
-            // Sign-extend
-            if (mouse_byte[0] & 0x10) delta_x |= 0xFFFFFF00;
-            if (mouse_byte[0] & 0x20) delta_y |= 0xFFFFFF00;
-            
-            // Overflow check
-            if (mouse_byte[0] & 0x40) delta_x = 0; // X overflow
-            if (mouse_byte[0] & 0x80) delta_y = 0; // Y overflow
-            
-            // Sanity check: nicht zu große Sprünge
-            if (delta_x < -20 || delta_x > 20) delta_x = 0;
-            if (delta_y < -20 || delta_y > 20) delta_y = 0;
-            
-            // Position aktualisieren (langsamer)
-            mouse_x += delta_x / 20;
-            mouse_y -= delta_y / 20;
-            
-            // Bounds
-            if (mouse_x < 0) mouse_x = 0;
-            if (mouse_x >= 80) mouse_x = 79;
-            if (mouse_y < 0) mouse_y = 0;
-            if (mouse_y >= 25) mouse_y = 24;
-            
-            // Erfolg - Fehler zurücksetzen
-            error_count = 0;
-            break;
-    }
-}
+    // Prüfen ob Daten da sind (Bit 0) und ob sie von der Maus kommen (Bit 5)
+    if ((status & 0x01) && (status & 0x20)) {
+        unsigned char b1 = inb(MOUSE_PORT_DATA);
+        
+        // Kurz warten für die nächsten Bytes (Polling)
+        int t = 1000; while(!(inb(MOUSE_PORT_STATUS) & 1) && t--);
+        unsigned char b2 = inb(MOUSE_PORT_DATA);
+        
+        t = 1000; while(!(inb(MOUSE_PORT_STATUS) & 1) && t--);
+        unsigned char b3 = inb(MOUSE_PORT_DATA);
 
-int mouse_get_x() { return mouse_x; }
-int mouse_get_y() { return mouse_y; }
-unsigned char mouse_get_buttons() { return mouse_buttons; }
+        // Paket dekodieren
+        // Bit 3 von Byte 1 muss 1 sein
+        if ((b1 & 0x08) == 0) return 0;
+
+        int x = b2;
+        int y = b3;
+
+        // Vorzeichen behandeln (9-bit two's complement)
+        if (b1 & 0x10) x -= 256;
+        if (b1 & 0x20) y -= 256;
+
+        *dx = x;
+        *dy = -y; // Y ist bei PS/2 umgekehrt
+        *buttons = b1 & 0x07; // Bit 0=Links, 1=Rechts, 2=Mitte
+        return 1;
+    }
+    return 0;
+}

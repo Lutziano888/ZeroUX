@@ -1,6 +1,7 @@
 #include "vbe.h"
 #include "port.h"
 #include "font.h"
+#include "modern_font.h"
 
 static unsigned int* framebuffer = 0;
 static int screen_width = 1920;
@@ -94,7 +95,7 @@ void vbe_draw_rect(int x, int y, int w, int h, unsigned int color) {
 void vbe_draw_char(int x, int y, char c, unsigned int fg, unsigned int bg) {
     if (c < 32 || c > 126) c = '?';
     
-    const unsigned char* glyph = font_8x16[(unsigned char)c];
+    const unsigned char* glyph = font_modern_8x16[(unsigned char)c];
     
     for (int py = 0; py < 16; py++) {
         unsigned char row = glyph[py];

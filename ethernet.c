@@ -2,145 +2,219 @@
 #include "port.h"
 #include "string.h"
 
-// =====================
-// Network Device Status
-// =====================
-static MAC_Address device_mac = { {0x52, 0x54, 0x00, 0x12, 0x34, 0x56} };
-static IP_Address device_ip = { {192, 168, 1, 100} };
-static IP_Address gateway_ip = { {192, 168, 1, 1} };
-static IP_Address subnet_mask = { {255, 255, 255, 0} };
-static int connection_status = 0; // 0 = disconnected, 1 = connected
+typedef unsigned char uint8_t;
+typedef unsigned short uint16_t;
+typedef unsigned int uint32_t;
+typedef unsigned long long uint64_t;
 
-// =====================
-// PCI Configuration Registers for NIC
-// =====================
-#define PCI_CONFIG_ADDRESS 0x0CF8
-#define PCI_CONFIG_DATA    0x0CFC
+// Intel E1000 Register Offsets
+#define E1000_CTRL     0x0000
+#define E1000_ICR      0x00C0
+#define E1000_RCTL     0x0100
+#define E1000_TCTL     0x0400
+#define E1000_RDBAL    0x2800
+#define E1000_RDBAH    0x2804
+#define E1000_RDLEN    0x2808
+#define E1000_RDH      0x2810
+#define E1000_RDT      0x2818
+#define E1000_TDBAL    0x3800
+#define E1000_TDBAH    0x3804
+#define E1000_TDLEN    0x3808
+#define E1000_TDH      0x3810
+#define E1000_TDT      0x3818
+#define E1000_RAL      0x5400
+#define E1000_RAH      0x5404
 
-// Common NIC device IDs
-#define INTEL_E1000_DEVICE_ID 0x1004
-#define REALTEK_RTL8139_DEVICE_ID 0x8139
+// Konfiguration
+#define NUM_RX_DESC 32
+#define NUM_TX_DESC 8
 
-// =====================
-// NIC Register Offsets (example for e1000)
-// =====================
-#define REG_CTRL    0x0000  // Device Control
-#define REG_STATUS  0x0008  // Device Status
-#define REG_CTRL_EXT 0x0018 // Extended Device Control
-#define REG_MDIC    0x0020  // MDI Control
-#define REG_FCAL    0x0028  // Flow Control Address Low
-#define REG_FCAH    0x002C  // Flow Control Address High
-#define REG_FCT     0x0030  // Flow Control Type
-#define REG_FCS     0x0034  // Flow Control Settings
-#define REG_FCTTV   0x0170  // Flow Control Transmit Timer Value
+// Descriptor Strukturen (Hardware-Format)
+typedef struct {
+    volatile uint64_t addr;
+    volatile uint16_t length;
+    volatile uint16_t checksum;
+    volatile uint8_t status;
+    volatile uint8_t errors;
+    volatile uint16_t special;
+} __attribute__((packed)) rx_desc_t;
 
-// Device Detection
-static unsigned int pci_read_config(unsigned char bus, unsigned char slot, unsigned char func, unsigned char offset) {
-    unsigned int address = (1 << 31) | (bus << 16) | (slot << 11) | (func << 8) | (offset & 0xFC);
-    outl(PCI_CONFIG_ADDRESS, address);
-    return inl(PCI_CONFIG_DATA);
+typedef struct {
+    volatile uint64_t addr;
+    volatile uint16_t length;
+    volatile uint8_t cso;
+    volatile uint8_t cmd;
+    volatile uint8_t status;
+    volatile uint8_t css;
+    volatile uint16_t special;
+} __attribute__((packed)) tx_desc_t;
+
+// Globale Variablen für den Treiber
+static uint8_t* mmio_base = 0;
+static rx_desc_t rx_descs[NUM_RX_DESC];
+static tx_desc_t tx_descs[NUM_TX_DESC];
+static uint8_t rx_buffers[NUM_RX_DESC][2048];
+static uint8_t tx_buffers[NUM_TX_DESC][2048];
+
+static int rx_cur = 0;
+static int tx_cur = 0;
+static int is_initialized = 0;
+static MAC_Address my_mac;
+static IP_Address my_ip = {{0, 0, 0, 0}}; // Start with 0.0.0.0
+
+// Hilfsfunktionen für Memory Mapped I/O
+static void mmio_write32(uint32_t offset, uint32_t val) {
+    *(volatile uint32_t*)(mmio_base + offset) = val;
+}
+static uint32_t mmio_read32(uint32_t offset) {
+    return *(volatile uint32_t*)(mmio_base + offset);
 }
 
-static void pci_write_config(unsigned char bus, unsigned char slot, unsigned char func, unsigned char offset, unsigned int data) {
-    unsigned int address = (1 << 31) | (bus << 16) | (slot << 11) | (func << 8) | (offset & 0xFC);
-    outl(PCI_CONFIG_ADDRESS, address);
-    outl(PCI_CONFIG_DATA, data);
+// PCI Konfiguration lesen/schreiben
+static uint32_t pci_read(uint8_t bus, uint8_t slot, uint8_t func, uint8_t offset) {
+    uint32_t address = (1U << 31) | (bus << 16) | (slot << 11) | (func << 8) | (offset & 0xFC);
+    outl(0xCF8, address);
+    return inl(0xCFC);
+}
+static void pci_write(uint8_t bus, uint8_t slot, uint8_t func, uint8_t offset, uint32_t value) {
+    uint32_t address = (1U << 31) | (bus << 16) | (slot << 11) | (func << 8) | (offset & 0xFC);
+    outl(0xCF8, address);
+    outl(0xCFC, value);
 }
 
-static int find_network_device() {
-    // Scan PCI bus for Ethernet controllers (class 0x02)
-    int bus, slot, func;
-    unsigned int vendor_device, class_revision, class_code;
-    
-    for (bus = 0; bus < 256; bus++) {
-        for (slot = 0; slot < 32; slot++) {
-            for (func = 0; func < 8; func++) {
-                vendor_device = pci_read_config(bus, slot, func, 0x00);
-                
-                if (vendor_device == 0xFFFFFFFF)
-                    continue;
-                
-                class_revision = pci_read_config(bus, slot, func, 0x08);
-                class_code = (class_revision >> 8) & 0xFFFFFF;
-                
-                // Network controller class
-                if ((class_code & 0xFF0000) == 0x020000) {
-                    return 1; // Found network device
+void ethernet_init() {
+    // 1. Suche nach Intel E1000 (Vendor: 0x8086, Device: 0x100E für 82540EM)
+    uint8_t bus, slot, func;
+    int found = 0;
+    for (int b = 0; b < 256 && !found; b++) {
+        for (int s = 0; s < 32 && !found; s++) {
+            for (int f = 0; f < 8 && !found; f++) {
+                uint32_t vid_did = pci_read(b, s, f, 0x00);
+                if ((vid_did & 0xFFFF) == 0x8086 && (vid_did >> 16) == 0x100E) {
+                    bus = b; slot = s; func = f;
+                    found = 1;
                 }
             }
         }
     }
+    if (!found) return; // Keine Karte gefunden
+
+    // 2. MMIO Basisadresse holen (BAR0)
+    uint32_t bar0 = pci_read(bus, slot, func, 0x10);
+    mmio_base = (uint8_t*)(bar0 & 0xFFFFFFF0);
+
+    // 3. Bus Master aktivieren (Wichtig für DMA!)
+    uint32_t cmd = pci_read(bus, slot, func, 0x04);
+    pci_write(bus, slot, func, 0x04, cmd | 0x4);
+
+    // 4. MAC Adresse auslesen
+    uint32_t ral = mmio_read32(E1000_RAL);
+    uint32_t rah = mmio_read32(E1000_RAH);
+    my_mac.addr[0] = ral & 0xFF;
+    my_mac.addr[1] = (ral >> 8) & 0xFF;
+    my_mac.addr[2] = (ral >> 16) & 0xFF;
+    my_mac.addr[3] = (ral >> 24) & 0xFF;
+    my_mac.addr[4] = rah & 0xFF;
+    my_mac.addr[5] = (rah >> 8) & 0xFF;
+
+    // 5. Empfang (RX) initialisieren
+    for (int i = 0; i < NUM_RX_DESC; i++) {
+        rx_descs[i].addr = (uint64_t)(uint32_t)rx_buffers[i];
+        rx_descs[i].status = 0;
+    }
+    mmio_write32(E1000_RDBAL, (uint32_t)&rx_descs[0]);
+    mmio_write32(E1000_RDBAH, 0);
+    mmio_write32(E1000_RDLEN, NUM_RX_DESC * sizeof(rx_desc_t));
+    mmio_write32(E1000_RDH, 0);
+    mmio_write32(E1000_RDT, NUM_RX_DESC - 1);
+    // RCTL: Enable (1<<1), Broadcast (1<<15), Strip CRC (1<<26)
+    // NEU: Enable Unicast Promiscuous (1<<3) damit wir Antworten sicher empfangen
+    mmio_write32(E1000_RCTL, (1 << 1) | (1 << 3) | (1 << 4) | (1 << 15) | (1 << 26)); 
+
+    // 6. Senden (TX) initialisieren
+    for (int i = 0; i < NUM_TX_DESC; i++) {
+        tx_descs[i].addr = (uint64_t)(uint32_t)tx_buffers[i];
+        tx_descs[i].cmd = 0;
+        tx_descs[i].status = 1; // Done
+    }
+    mmio_write32(E1000_TDBAL, (uint32_t)&tx_descs[0]);
+    mmio_write32(E1000_TDBAH, 0);
+    mmio_write32(E1000_TDLEN, NUM_TX_DESC * sizeof(tx_desc_t));
+    mmio_write32(E1000_TDH, 0);
+    mmio_write32(E1000_TDT, 0);
+    // TCTL: Enable (1<<1), Pad Short Packets (1<<3)
+    mmio_write32(E1000_TCTL, (1 << 1) | (1 << 3));
+
+    // 7. Link Up setzen
+    uint32_t ctrl = mmio_read32(E1000_CTRL);
+    mmio_write32(E1000_CTRL, ctrl | (1 << 6)); // SLU
+
+    is_initialized = 1;
+}
+
+MAC_Address ethernet_get_mac() { return my_mac; }
+int ethernet_is_connected() { return is_initialized; }
+void ethernet_dhcp_request() {} // Wird jetzt von net.c gesteuert
+
+IP_Address ethernet_get_ip() { return my_ip; }
+void ethernet_set_ip(uint8_t* ip) {
+    memcpy(my_ip.addr, ip, 4);
+}
+
+int ethernet_send_frame(EthernetFrame* frame) {
+    if (!is_initialized) return -1;
+
+    int idx = tx_cur;
+    tx_desc_t* desc = &tx_descs[idx];
+    
+    // Daten in den DMA-Buffer kopieren
+    int len = frame->length + 14;
+    uint8_t* buf = tx_buffers[idx];
+    memcpy(buf, frame->dest_mac.addr, 6);
+    memcpy(buf + 6, frame->src_mac.addr, 6);
+    memcpy(buf + 12, &frame->ethertype, 2);
+    memcpy(buf + 14, frame->payload, frame->length);
+
+    desc->length = len;
+    desc->cmd = (1 << 0) | (1 << 1) | (1 << 3); // EOP (End of Packet) | IFCS (Insert Checksum) | RS (Report Status)
+    desc->status = 0;
+
+    // Tail Pointer erhöhen (startet Übertragung)
+    tx_cur = (tx_cur + 1) % NUM_TX_DESC;
+    mmio_write32(E1000_TDT, tx_cur);
+
+    // Warten bis fertig (Polling)
+    while (!(desc->status & 1)); 
+    
     return 0;
 }
 
-// =====================
-// Initialization
-// =====================
-void ethernet_init() {
-    // Check if network device is available on mainboard
-    if (find_network_device()) {
-        connection_status = 1;
-        // Request DHCP configuration if needed
-        ethernet_dhcp_request();
-    } else {
-        connection_status = 0;
-    }
-}
-
-MAC_Address ethernet_get_mac() {
-    return device_mac;
-}
-
-IP_Address ethernet_get_ip() {
-    return device_ip;
-}
-
-int ethernet_is_connected() {
-    return connection_status;
-}
-
-// =====================
-// Frame Transmission
-// =====================
-int ethernet_send_frame(EthernetFrame* frame) {
-    if (!connection_status)
-        return -1; // Not connected
-    
-    // In a real implementation, this would:
-    // 1. Build the Ethernet frame with proper headers
-    // 2. Access the NIC's transmit buffer
-    // 3. Write the frame data
-    // 4. Signal the NIC to transmit
-    
-    return 0; // Success
-}
-
-// =====================
-// Frame Reception
-// =====================
 int ethernet_recv_frame(EthernetFrame* frame) {
-    if (!connection_status)
-        return -1;
-    
-    // In a real implementation, this would:
-    // 1. Check NIC's receive buffer
-    // 2. Read frame data if available
-    // 3. Validate frame
-    // 4. Return frame to caller
-    
-    return -1; // No frame available
-}
+    if (!is_initialized) return -1;
 
-// =====================
-// DHCP (simplified stub)
-// =====================
-void ethernet_dhcp_request() {
-    // In a real implementation, this would:
-    // 1. Send DHCP DISCOVER packet
-    // 2. Wait for DHCP OFFER
-    // 3. Send DHCP REQUEST
-    // 4. Receive DHCP ACK with assigned IP
+    int idx = rx_cur;
+    rx_desc_t* desc = &rx_descs[idx];
+
+    // Prüfen ob Descriptor Done (DD) Bit gesetzt ist
+    if (!(desc->status & 1)) return -1; 
+
+    // Daten kopieren
+    int len = desc->length;
+    if (len > 1514) len = 1514;
+    uint8_t* buf = rx_buffers[idx];
+
+    memcpy(frame->dest_mac.addr, buf, 6);
+    memcpy(frame->src_mac.addr, buf + 6, 6);
+    memcpy(&frame->ethertype, buf + 12, 2);
+    memcpy(frame->payload, buf + 14, len - 14);
+    frame->length = len - 14;
+
+    // Descriptor zurücksetzen für Wiederverwendung
+    desc->status = 0;
     
-    // For now, use static IP
-    connection_status = 1;
+    // Tail Pointer erhöhen (gibt Descriptor an Hardware zurück)
+    mmio_write32(E1000_RDT, idx);
+    rx_cur = (rx_cur + 1) % NUM_RX_DESC;
+
+    return 0;
 }

@@ -64,6 +64,28 @@ void memcpy(void* dest, const void* src, int n) {
     }
 }
 
+void* memset(void* ptr, int value, int num) {
+    unsigned char* p = (unsigned char*)ptr;
+    while (num--) *p++ = (unsigned char)value;
+    return ptr;
+}
+
+int memcmp(const void* ptr1, const void* ptr2, int num) {
+    const unsigned char* p1 = (const unsigned char*)ptr1;
+    const unsigned char* p2 = (const unsigned char*)ptr2;
+    while (num--) {
+        if (*p1 != *p2) return *p1 - *p2;
+        p1++; p2++;
+    }
+    return 0;
+}
+
+int strlen(const char* str) {
+    int len = 0;
+    while (str[len]) len++;
+    return len;
+}
+
 /* ----------- Zahl → String ----------- */
 void int_to_str(int num, char* out) {
     char tmp[12];

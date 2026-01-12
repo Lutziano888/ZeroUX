@@ -1,11 +1,13 @@
 #include "fs.h"
 #include "string.h"
-#include "vga.h"
+
+#ifndef NULL
+#define NULL ((void*)0)
+#endif
 
 static file_t files[MAX_FILES];
-static int current_dir = 0;  // Index des aktuellen Verzeichnisses
+static int current_dir_idx = 0;
 
-// Hilfsfunktion: Freien Slot finden
 static int find_free_slot() {
     for (int i = 0; i < MAX_FILES; i++) {
         if (!files[i].in_use) return i;
@@ -13,243 +15,140 @@ static int find_free_slot() {
     return -1;
 }
 
-// Hilfsfunktion: Datei/Verzeichnis im aktuellen Verzeichnis finden
-static int find_file(const char* name) {
+static int create_file_internal(const char* name, int type, int parent, const char* content) {
+    int slot = find_free_slot();
+    if (slot == -1) return -1;
+    
+    strcpy(files[slot].name, name);
+    files[slot].type = type;
+    files[slot].parent_idx = parent;
+    files[slot].in_use = 1;
+    files[slot].size = content ? strlen(content) : 0;
+    if (content) strcpy(files[slot].content, content);
+    else files[slot].content[0] = 0;
+    
+    return slot;
+}
+
+void fs_init() {
+    // 1. Alles löschen
+    for (int i = 0; i < MAX_FILES; i++) files[i].in_use = 0;
+    current_dir_idx = 0;
+
+    // 2. Root Verzeichnis (Index 0)
+    files[0].in_use = 1;
+    strcpy(files[0].name, "Root");
+    files[0].type = FILE_TYPE_DIR;
+    files[0].parent_idx = 0;
+
+    // 3. Standard-Ordner erstellen
+    int prog_dir = create_file_internal("Programs", FILE_TYPE_DIR, 0, NULL);
+    int docs_dir = create_file_internal("Documents", FILE_TYPE_DIR, 0, NULL);
+    int sys_dir  = create_file_internal("System", FILE_TYPE_DIR, 0, NULL);
+
+    // 4. Apps in "Programs" erstellen
+    // Der Content "app:ID" hilft uns später, das richtige Fenster zu öffnen
+    create_file_internal("Calculator", FILE_TYPE_APP, prog_dir, "app:2");
+    create_file_internal("Notepad",    FILE_TYPE_APP, prog_dir, "app:1");
+    create_file_internal("Browser",    FILE_TYPE_APP, prog_dir, "app:4");
+    create_file_internal("Terminal",   FILE_TYPE_APP, prog_dir, "app:6");
+    create_file_internal("Python IDE", FILE_TYPE_APP, prog_dir, "app:7");
+    create_file_internal("MemDoctor",  FILE_TYPE_APP, prog_dir, "app:5");
+    create_file_internal("Files",      FILE_TYPE_APP, prog_dir, "app:3");
+    create_file_internal("Text Editor", FILE_TYPE_APP, prog_dir, "app:8");
+
+    // 5. Beispiel-Dateien in "Documents"
+    create_file_internal("Readme.txt", FILE_TYPE_FILE, docs_dir, "Welcome to ZeroUX!\n\nThis is a structured filesystem.\nNavigate using the File Manager.");
+    create_file_internal("Todo.txt",   FILE_TYPE_FILE, docs_dir, "- Fix bugs\n- Add more apps\n- Sleep");
+
+    // 6. System Dateien
+    create_file_internal("kernel.sys", FILE_TYPE_FILE, sys_dir, "BINARY_DATA_DO_NOT_TOUCH");
+
+    // 7. Externe Binaries (Demo)
+    create_file_internal("win_app.exe", FILE_TYPE_FILE, prog_dir, "MZ\x90\x00\x03\x00\x00\x00\x04\x00\x00\x00\xFF\xFF\x00\x00\xB8\x00\x00\x00\x00\x00\x00\x00\x40\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x80\x00\x00\x00\x0E\x1F\xBA\x0E\x00\xB4\x09\xCD\x21\xB8\x01\x4C\xCD\x21\x54\x68\x69\x73\x20\x70\x72\x6F\x67\x72\x61\x6D\x20\x63\x61\x6E\x6E\x6F\x74\x20\x62\x65\x20\x72\x75\x6E\x20\x69\x6E\x20\x44\x4F\x53\x20\x6D\x6F\x64\x65\x2E\x0D\x0D\x0A\x24\x00\x00\x00\x00\x00\x00\x00");
+    create_file_internal("linux_tool.elf", FILE_TYPE_FILE, prog_dir, "\x7F\x45\x4C\x46\x01\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\x03\x00\x01\x00\x00\x00\x54\x80\x04\x08\x34\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x34\x00\x20\x00\x01\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00");
+}
+
+file_t* fs_get_table() { return files; }
+int fs_get_current_dir() { return current_dir_idx; }
+void fs_set_current_dir(int dir) { current_dir_idx = dir; }
+
+int fs_mkdir(const char* name) {
+    return create_file_internal(name, FILE_TYPE_DIR, current_dir_idx, NULL);
+}
+
+int fs_touch(const char* name) {
+    return create_file_internal(name, FILE_TYPE_FILE, current_dir_idx, "");
+}
+
+int fs_rm(const char* name) {
     for (int i = 0; i < MAX_FILES; i++) {
-        if (files[i].in_use && 
-            files[i].parent_idx == current_dir &&
-            strcmp(files[i].name, name) == 0) {
-            return i;
+        if (files[i].in_use && files[i].parent_idx == current_dir_idx && strcmp(files[i].name, name) == 0) {
+            // Einfache Löschung (rekursiv wäre besser, aber dies reicht erstmal)
+            files[i].in_use = 0;
+            return 0;
         }
     }
     return -1;
 }
 
-void fs_init() {
-    // Alle Slots als frei markieren
-    for (int i = 0; i < MAX_FILES; i++) {
-        files[i].in_use = 0;
-    }
-    
-    // Root-Verzeichnis erstellen
-    files[0].in_use = 1;
-    strcpy(files[0].name, "/");
-    files[0].type = FILE_TYPE_DIR;
-    files[0].parent_idx = 0;  // Root zeigt auf sich selbst
-    files[0].size = 0;
-    
-    current_dir = 0;
-    
-    vga_println("Filesystem initialized.");
-}
-
-int fs_cd(const char* dirname) {
-    // ".." = Elternverzeichnis
-    if (strcmp(dirname, "..") == 0) {
-        if (current_dir != 0) {
-            current_dir = files[current_dir].parent_idx;
-            return 0;
+int fs_cd(const char* name) {
+    if (strcmp(name, "..") == 0) {
+        if (current_dir_idx != 0) {
+            current_dir_idx = files[current_dir_idx].parent_idx;
         }
-        return 0;  // Bereits in root
+        return 0;
     }
-    
-    // "/" = Root
-    if (strcmp(dirname, "/") == 0) {
-        current_dir = 0;
+    // Root check
+    if (strcmp(name, "/") == 0 || strcmp(name, "\\") == 0) {
+        current_dir_idx = 0;
         return 0;
     }
     
-    // Verzeichnis suchen
-    int idx = find_file(dirname);
-    if (idx == -1) {
-        vga_print("cd: directory not found: ");
-        vga_println(dirname);
-        return -1;
+    for (int i = 0; i < MAX_FILES; i++) {
+        if (files[i].in_use && files[i].parent_idx == current_dir_idx && 
+            files[i].type == FILE_TYPE_DIR && strcmp(files[i].name, name) == 0) {
+            current_dir_idx = i;
+            return 0;
+        }
     }
-    
-    if (files[idx].type != FILE_TYPE_DIR) {
-        vga_print("cd: not a directory: ");
-        vga_println(dirname);
-        return -1;
-    }
-    
-    current_dir = idx;
-    return 0;
+    return -1;
 }
 
-void fs_pwd(char* out) {
-    if (current_dir == 0) {
-        strcpy(out, "/");
+void fs_pwd(char* buffer) {
+    if (current_dir_idx == 0) {
+        strcpy(buffer, "/");
         return;
     }
     
-    // Pfad rekursiv aufbauen
-    char temp[256];
-    temp[0] = 0;
-    
-    int idx = current_dir;
-    while (idx != 0) {
-        char part[MAX_FILENAME + 2];
-        strcpy(part, "/");
-        strcat(part, files[idx].name);
-        strcat(part, temp);
-        strcpy(temp, part);
-        idx = files[idx].parent_idx;
-    }
-    
-    strcpy(out, temp);
+    // Rekursiv Pfad bauen (einfach: nur 1 Level Parent anzeigen für jetzt)
+    // Richtig wäre ein Stack, aber wir machen es simpel:
+    char temp[64];
+    strcpy(buffer, "/");
+    strcat(buffer, files[current_dir_idx].name);
 }
 
-void fs_ls() {
-    int found = 0;
-    
+// Neue Funktion zum Speichern von Daten (für Installer/Netzwerk)
+int fs_save_file(const char* name, const char* data, int len) {
+    // 1. Prüfen ob Datei existiert (Überschreiben)
     for (int i = 0; i < MAX_FILES; i++) {
-        if (files[i].in_use && files[i].parent_idx == current_dir) {
-            found = 1;
-            
-            if (files[i].type == FILE_TYPE_DIR) {
-                vga_print("[DIR]  ");
-            } else {
-                vga_print("[FILE] ");
-            }
-            
-            vga_print(files[i].name);
-            
-            if (files[i].type == FILE_TYPE_FILE) {
-                vga_print(" (");
-                char size_str[12];
-                int_to_str(files[i].size, size_str);
-                vga_print(size_str);
-                vga_print(" bytes)");
-            }
-            
-            vga_print("\n");
+        if (files[i].in_use && files[i].parent_idx == current_dir_idx && strcmp(files[i].name, name) == 0) {
+            files[i].size = len;
+            for(int k=0; k<len; k++) files[i].content[k] = data[k];
+            files[i].content[len] = 0; // Safety null
+            return 0;
         }
     }
+    // 2. Neue Datei erstellen
+    int slot = find_free_slot();
+    if (slot == -1) return -1;
     
-    if (!found) {
-        vga_println("(empty directory)");
-    }
-}
-
-int fs_mkdir(const char* dirname) {
-    // Prüfen ob Name bereits existiert
-    if (find_file(dirname) != -1) {
-        vga_print("mkdir: directory already exists: ");
-        vga_println(dirname);
-        return -1;
-    }
-    
-    // Freien Slot finden
-    int idx = find_free_slot();
-    if (idx == -1) {
-        vga_println("mkdir: no free slots");
-        return -1;
-    }
-    
-    // Verzeichnis erstellen
-    files[idx].in_use = 1;
-    strcpy(files[idx].name, dirname);
-    files[idx].type = FILE_TYPE_DIR;
-    files[idx].parent_idx = current_dir;
-    files[idx].size = 0;
-    
-    return 0;
-}
-
-int fs_touch(const char* filename) {
-    // Prüfen ob Name bereits existiert
-    if (find_file(filename) != -1) {
-        vga_print("touch: file already exists: ");
-        vga_println(filename);
-        return -1;
-    }
-    
-    // Freien Slot finden
-    int idx = find_free_slot();
-    if (idx == -1) {
-        vga_println("touch: no free slots");
-        return -1;
-    }
-    
-    // Datei erstellen
-    files[idx].in_use = 1;
-    strcpy(files[idx].name, filename);
-    files[idx].type = FILE_TYPE_FILE;
-    files[idx].parent_idx = current_dir;
-    files[idx].size = 0;
-    files[idx].content[0] = 0;
-    
-    return 0;
-}
-
-int fs_rm(const char* filename) {
-    int idx = find_file(filename);
-    if (idx == -1) {
-        vga_print("rm: file not found: ");
-        vga_println(filename);
-        return -1;
-    }
-    
-    // Verzeichnis nur löschen wenn leer
-    if (files[idx].type == FILE_TYPE_DIR) {
-        for (int i = 0; i < MAX_FILES; i++) {
-            if (files[i].in_use && files[i].parent_idx == idx) {
-                vga_println("rm: directory not empty");
-                return -1;
-            }
-        }
-    }
-    
-    files[idx].in_use = 0;
-    return 0;
-}
-
-int fs_cat(const char* filename) {
-    int idx = find_file(filename);
-    if (idx == -1) {
-        vga_print("cat: file not found: ");
-        vga_println(filename);
-        return -1;
-    }
-    
-    if (files[idx].type != FILE_TYPE_FILE) {
-        vga_print("cat: not a file: ");
-        vga_println(filename);
-        return -1;
-    }
-    
-    if (files[idx].size == 0) {
-        vga_println("(empty file)");
-    } else {
-        vga_println(files[idx].content);
-    }
-    
-    return 0;
-}
-
-int fs_write(const char* filename, const char* content) {
-    int idx = find_file(filename);
-    if (idx == -1) {
-        vga_print("write: file not found: ");
-        vga_println(filename);
-        return -1;
-    }
-    
-    if (files[idx].type != FILE_TYPE_FILE) {
-        vga_print("write: not a file: ");
-        vga_println(filename);
-        return -1;
-    }
-    
-    // Content kopieren (mit Größenbeschränkung)
-    int len = 0;
-    while (content[len] && len < MAX_FILE_SIZE - 1) {
-        files[idx].content[len] = content[len];
-        len++;
-    }
-    files[idx].content[len] = 0;
-    files[idx].size = len;
-    
+    strcpy(files[slot].name, name);
+    files[slot].type = FILE_TYPE_FILE;
+    files[slot].parent_idx = current_dir_idx;
+    files[slot].in_use = 1;
+    files[slot].size = len;
+    for(int k=0; k<len; k++) files[slot].content[k] = data[k];
+    files[slot].content[len] = 0;
     return 0;
 }
