@@ -4,6 +4,7 @@ static unsigned short* VGA = (unsigned short*)0xB8000;
 static int row = 0, col = 0;
 static int scroll_offset = 0;  // Für manuelles Scrollen
 
+static int batch_update = 0;   // Verhindert unnötige Refreshes während Textausgabe
 #define VGA_WIDTH 80
 #define VGA_HEIGHT 25
 #define BUFFER_HEIGHT 500  // Virtueller Puffer für Historie
@@ -13,6 +14,8 @@ static int buffer_lines = 0;  // Anzahl genutzter Zeilen
 
 // Aktualisiert den sichtbaren Bildschirm aus dem Buffer
 static void vga_refresh() {
+    if (batch_update) return; // Nicht zeichnen, wenn wir noch sammeln
+
     int start_line = buffer_lines - VGA_HEIGHT - scroll_offset;
     if (start_line < 0) start_line = 0;
     
@@ -65,6 +68,12 @@ void vga_put(char c) {
     
     // In Buffer schreiben
     vga_buffer[row * VGA_WIDTH + col] = (0x0F << 8) | c;
+    
+    // OPTIMIERUNG: Direktes Schreiben in VRAM verhindert Flackern beim Tippen
+    if (scroll_offset == 0 && !batch_update) {
+        VGA[row * VGA_WIDTH + col] = (0x0F << 8) | c;
+    }
+    
     col++;
     
     if (col >= VGA_WIDTH) {
@@ -73,13 +82,20 @@ void vga_put(char c) {
     }
     
     // Anzeige aktualisieren wenn nicht manuell gescrollt
-    if (scroll_offset == 0) {
-        vga_refresh();
-    }
+    // Wir haben das Zeichen schon geschrieben, also kein Full-Refresh nötig,
+    // außer wir haben gescrollt (was vga_scroll schon erledigt).
+    // if (scroll_offset == 0) { vga_refresh(); } 
 }
 
 void vga_print(const char* s) {
+    batch_update = 1; // Batch-Modus an: Keine Updates pro Zeichen
     while (*s) vga_put(*s++);
+    batch_update = 0; // Batch-Modus aus
+    
+    // Einmaliges Update am Ende des Strings
+    if (scroll_offset == 0) {
+        vga_refresh();
+    }
 }
 
 void vga_clear() {

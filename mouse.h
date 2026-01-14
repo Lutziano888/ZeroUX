@@ -3,6 +3,6 @@
 
 void mouse_init();
 int mouse_read_packet(int* dx, int* dy, int* buttons);
-void mouse_handle_byte();
+void mouse_debug_status(); // NEU: Für Debugging
 
 #endif

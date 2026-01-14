@@ -4,6 +4,9 @@
 #include "../fs.h"
 #include "../string.h"
 
+// Externe Deklaration, da fs.h unvollständig ist
+int fs_save_file(const char* name, const char* data, int len);
+
 #define MAX_TEXT_SIZE 2048
 #define MAX_FILENAME 32
 

@@ -8,7 +8,7 @@ void gui_draw_window(int id);
 void gui_draw_all_windows();
 void gui_run();
 
-// NEU: Window Visibility Management
+// Window Visibility Management
 void gui_close_window(int id);
 void gui_open_window(int id);
 int gui_is_window_visible(int id);
@@ -21,11 +21,23 @@ void draw_button(int x, int y, const char* text, unsigned char color);
 int check_button_click(int cx, int cy, int bx, int by, const char* text);
 void draw_button_modern(int x, int y, int w, int h, int r, const char* text, unsigned int color);
 
-// NEU: Close-Button Funktionen
+// Close-Button Funktionen
 void draw_close_button(int x, int y, unsigned char color);
 int check_close_button_click(int cx, int cy, int win_x, int win_y, int win_w);
 
-// Window count constant for array sizing
+// NEU: Hochauflösende Font-Rendering Funktionen
+void draw_text_hd(int x, int y, const char* text, unsigned int color, int size);
+void draw_text_antialiased(int x, int y, const char* text, unsigned int color);
+
+// Window count constant
 #define MAX_WINDOWS 9
+
+// NEU: Auflösungsunterstützung
+#define RES_1080P 0
+#define RES_720P  1
+#define RES_LEGACY 2
+
+// Desktop Personalization
+void gui_set_desktop_gradient(unsigned int top, unsigned int bottom);
 
 #endif

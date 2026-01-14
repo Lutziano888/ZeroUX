@@ -3,6 +3,7 @@
 #include "ethernet.h"
 #include "string.h"
 #include "port.h"
+#include "mouse.h"
 
 // NOTLÖSUNG: pmm.c direkt einbinden, da das Makefile nicht angepasst wurde.
 // Sobald das Makefile pmm.o kompiliert, ändere dies zurück zu #include "pmm.h"!
@@ -81,6 +82,14 @@ void kernel_main(unsigned long magic, unsigned long addr) {
     serial_puts("Initializing Ethernet...\n");
     ethernet_init();
     serial_puts("Ethernet init done\n");
+
+    // Maus-Initialisierung mit Fehlerbehandlung
+    serial_puts("Initializing Mouse...\n");
+    mouse_init();
+    serial_puts("Mouse init done (Polling mode)\n");
+    
+    // WICHTIG: Kurze Pause nach Maus-Init
+    for (volatile int i = 0; i < 1000000; i++);
     
     // Initialize TCP/IP Stack
     net_init();

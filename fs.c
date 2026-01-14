@@ -1,5 +1,6 @@
 #include "fs.h"
 #include "string.h"
+#include "port.h" // For int_to_str
 
 #ifndef NULL
 #define NULL ((void*)0)
@@ -46,16 +47,18 @@ void fs_init() {
     int docs_dir = create_file_internal("Documents", FILE_TYPE_DIR, 0, NULL);
     int sys_dir  = create_file_internal("System", FILE_TYPE_DIR, 0, NULL);
 
-    // 4. Apps in "Programs" erstellen
-    // Der Content "app:ID" hilft uns später, das richtige Fenster zu öffnen
-    create_file_internal("Calculator", FILE_TYPE_APP, prog_dir, "app:2");
-    create_file_internal("Notepad",    FILE_TYPE_APP, prog_dir, "app:1");
-    create_file_internal("Browser",    FILE_TYPE_APP, prog_dir, "app:4");
-    create_file_internal("Terminal",   FILE_TYPE_APP, prog_dir, "app:6");
-    create_file_internal("Python IDE", FILE_TYPE_APP, prog_dir, "app:7");
-    create_file_internal("MemDoctor",  FILE_TYPE_APP, prog_dir, "app:5");
-    create_file_internal("Files",      FILE_TYPE_APP, prog_dir, "app:3");
-    create_file_internal("Text Editor", FILE_TYPE_APP, prog_dir, "app:8");
+    // 4. Apps in "Programs" erstellen (automatisch aus app_list.def)
+    #define APP(ID, NAME, ...) \
+        { \
+            char content[10]; \
+            char id_str[4]; \
+            strcpy(content, "app:"); \
+            int_to_str(ID, id_str); \
+            strcat(content, id_str); \
+            create_file_internal(NAME, FILE_TYPE_APP, prog_dir, content); \
+        }
+    #include "app_list.def"
+    #undef APP
 
     // 5. Beispiel-Dateien in "Documents"
     create_file_internal("Readme.txt", FILE_TYPE_FILE, docs_dir, "Welcome to ZeroUX!\n\nThis is a structured filesystem.\nNavigate using the File Manager.");

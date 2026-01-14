@@ -3,17 +3,25 @@
 #include "../fs.h"
 #include "../gui.h"
 #include "../string.h"
+#include "texteditor.h"
 
 static int fm_current_dir = 0;
 static int selected_file_idx = -1;
 static int hover_file_idx = -1;
 static int scroll_offset = 0;
 
+// Context Menu State
+static int ctx_menu_active = 0;
+static int ctx_menu_x = 0;
+static int ctx_menu_y = 0;
+static int ctx_file_idx = -1;
+
 void filemanager_init() {
     fm_current_dir = 0;
     selected_file_idx = -1;
     hover_file_idx = -1;
     scroll_offset = 0;
+    ctx_menu_active = 0;
 }
 
 // Dark Mode Farbpalette (Ubuntu-inspiriert)
@@ -32,88 +40,7 @@ void filemanager_init() {
 #define COLOR_SCROLLBAR    0xFF505050
 #define COLOR_SCROLL_THUMB 0xFF707070
 
-// Helper für Alpha Blending
-static unsigned int blend_colors(unsigned int bg, unsigned int fg, int alpha) {
-    if (alpha >= 255) return fg;
-    if (alpha <= 0) return bg;
-    
-    unsigned int r_bg = (bg >> 16) & 0xFF;
-    unsigned int g_bg = (bg >> 8) & 0xFF;
-    unsigned int b_bg = bg & 0xFF;
-    
-    unsigned int r_fg = (fg >> 16) & 0xFF;
-    unsigned int g_fg = (fg >> 8) & 0xFF;
-    unsigned int b_fg = fg & 0xFF;
-    
-    unsigned int r = (r_fg * alpha + r_bg * (255 - alpha)) / 255;
-    unsigned int g = (g_fg * alpha + g_bg * (255 - alpha)) / 255;
-    unsigned int b = (b_fg * alpha + b_bg * (255 - alpha)) / 255;
-    
-    return (r << 16) | (g << 8) | b;
-}
-
-// Integer Square Root
-static int isqrt(int n) {
-    if (n < 0) return 0;
-    int x = n;
-    int y = (x + 1) / 2;
-    while (y < x) {
-        x = y;
-        y = (x + n / x) / 2;
-    }
-    return x;
-}
-
-// Anti-Aliased Corner
-// quadrant: 0=TopLeft, 1=TopRight, 2=BottomLeft, 3=BottomRight
-static void draw_aa_corner(int cx, int cy, int r, unsigned int color, int quadrant) {
-    int r_sq = r * r;
-    int r_limit_sq = (r - 1) * (r - 1);
-    
-    for (int dy = 0; dy < r; dy++) {
-        for (int dx = 0; dx < r; dx++) {
-            int px = (quadrant == 1 || quadrant == 3) ? (cx + dx) : (cx - 1 - dx);
-            int py = (quadrant == 2 || quadrant == 3) ? (cy + dy) : (cy - 1 - dy);
-            
-            int d2 = (dx + 1) * (dx + 1) + (dy + 1) * (dy + 1);
-            int alpha = 255;
-            
-            if (d2 < r_limit_sq) {
-                alpha = 255;
-            } else if (d2 >= r_sq) {
-                alpha = 0;
-            } else {
-                int dist = isqrt(d2 * 256 * 256);
-                int edge_outer = r * 256;
-                int diff = edge_outer - dist;
-                if (diff < 0) diff = 0;
-                if (diff > 255) diff = 255;
-                alpha = diff;
-            }
-            
-            if (alpha > 0) {
-                if (alpha == 255) {
-                    vbe_set_pixel(px, py, color);
-                } else {
-                    unsigned int bg = vbe_get_pixel(px, py);
-                    vbe_set_pixel(px, py, blend_colors(bg, color, alpha));
-                }
-            }
-        }
-    }
-}
-
-// Helper für AA Ecken eines Rechtecks
-static void draw_aa_corners_rect(int x, int y, int w, int h, int r, unsigned int color, int top, int bottom) {
-    if (top) {
-        draw_aa_corner(x + r, y + r, r, color, 0);
-        draw_aa_corner(x + w - r, y + r, r, color, 1);
-    }
-    if (bottom) {
-        draw_aa_corner(x + r, y + h - r, r, color, 2);
-        draw_aa_corner(x + w - r, y + h - r, r, color, 3);
-    }
-}
+void draw_aa_corners_rect(int x, int y, int w, int h, int r, unsigned int color, int top, int bottom);
 
 // Abgerundete Rechtecke mit AA
 static void fill_rounded_rect(int x, int y, int w, int h, int radius, unsigned int color) {
@@ -123,7 +50,7 @@ static void fill_rounded_rect(int x, int y, int w, int h, int radius, unsigned i
     vbe_fill_rect(x + w - radius, y + radius, radius, h - 2 * radius, color);
     
     // AA Ecken
-    draw_aa_corners_rect(x, y, w, h, radius, color, 1, 1);
+    draw_aa_corners_rect(x, y, w, h, radius, color, 1, 1); // This will now call the function from gui.c
 }
 
 static void draw_rounded_rect(int x, int y, int w, int h, int radius, unsigned int color) {
@@ -404,6 +331,19 @@ static void draw_toolbar(int x, int y, int w, file_t* files) {
     vbe_draw_text(search_x + 10, y + 17, "Search...", COLOR_TEXT_DIM, VBE_TRANSPARENT);
 }
 
+// Helper to find app ID for "Edit"
+static int find_app_id_by_name(const char* name) {
+    file_t* files = fs_get_table();
+    for(int i=0; i<MAX_FILES; i++) {
+        if(files[i].in_use && files[i].type == FILE_TYPE_APP && strcmp(files[i].name, name) == 0) {
+             if(strncmp(files[i].content, "app:", 4) == 0) {
+                 return files[i].content[4] - '0';
+             }
+        }
+    }
+    return -1; // Not found
+}
+
 void filemanager_draw_vbe(int x, int y, int w, int h, int is_active) {
     // Haupthintergrund
     vbe_fill_rect(x, y, w, h, COLOR_BG);
@@ -478,9 +418,71 @@ void filemanager_draw_vbe(int x, int y, int w, int h, int is_active) {
     if (selected_file_idx >= 0 && files[selected_file_idx].in_use) {
         vbe_draw_text(x + 300, status_y + 9, files[selected_file_idx].name, COLOR_ACCENT, VBE_TRANSPARENT);
     }
+
+    // Draw Context Menu (on top)
+    if (ctx_menu_active) {
+        // Convert relative menu coordinates to absolute screen coordinates for drawing
+        int mx = x + ctx_menu_x;
+        int my_pos = y + ctx_menu_y;
+
+        // Shadow
+        vbe_fill_rect(mx + 4, my_pos + 4, 120, 85, 0x40000000);
+        
+        // Menu Background
+        vbe_fill_rect(mx, my_pos, 120, 85, COLOR_SIDEBAR);
+        vbe_draw_rect(mx, my_pos, 120, 85, COLOR_BORDER);
+
+        // Menu Items
+        int text_y = my_pos + 5;
+        
+        // 1. Open
+        vbe_draw_text(mx + 10, text_y, "Open", COLOR_TEXT, VBE_TRANSPARENT);
+        text_y += 25;
+        
+        // 2. Edit
+        vbe_draw_text(mx + 10, text_y, "Edit", COLOR_TEXT, VBE_TRANSPARENT);
+        text_y += 25;
+        
+        // Separator
+        vbe_fill_rect(mx + 5, text_y - 2, 110, 1, COLOR_BORDER);
+
+        // 3. Delete
+        vbe_draw_text(mx + 10, text_y, "Delete", 0xFFFF4444, VBE_TRANSPARENT);
+    }
 }
 
 void filemanager_handle_click_vbe(int x, int y) {
+    // Handle Context Menu Click
+    if (ctx_menu_active) {
+        // Check if click is inside menu
+        if (x >= ctx_menu_x && x <= ctx_menu_x + 120 && y >= ctx_menu_y && y <= ctx_menu_y + 85) {
+            int local_y = y - ctx_menu_y;
+            file_t* files = fs_get_table();
+
+            if (local_y >= 0 && local_y < 25) { // Open
+                if (files[ctx_file_idx].type == FILE_TYPE_DIR) {
+                    fm_current_dir = ctx_file_idx;
+                } else if (files[ctx_file_idx].type == FILE_TYPE_APP) {
+                    if (strncmp(files[ctx_file_idx].content, "app:", 4) == 0) {
+                        gui_open_window(files[ctx_file_idx].content[4] - '0');
+                    }
+                }
+            } else if (local_y >= 25 && local_y < 50) { // Edit
+                if (files[ctx_file_idx].type == FILE_TYPE_FILE) {
+                    texteditor_set_file(files[ctx_file_idx].name);
+                    // Try to open Text Editor (assuming ID 3 or searching for it)
+                    int app_id = find_app_id_by_name("Text Editor");
+                    if (app_id != -1) gui_open_window(app_id);
+                }
+            } else if (local_y >= 55 && local_y < 80) { // Delete
+                fs_rm(files[ctx_file_idx].name);
+            }
+        }
+        // Close menu on any click
+        ctx_menu_active = 0;
+        return;
+    }
+
     // Check Back Button
     if (y < 50 && x >= 212 && x <= 248 && y >= 12 && y <= 38) {
         file_t* files = fs_get_table();
@@ -527,4 +529,43 @@ void filemanager_handle_click_vbe(int x, int y) {
     }
     
     selected_file_idx = -1;
+}
+
+void filemanager_handle_right_click(int x, int y) {
+    // Check Icons for Right Click
+    int start_x = 220;
+    int start_y = 70;
+    int cur_x = start_x;
+    int cur_y = start_y - scroll_offset;
+    int gap_x = 90;
+    int gap_y = 100;
+    
+    file_t* files = fs_get_table();
+    
+    for (int i = 0; i < MAX_FILES; i++) {
+        if (files[i].in_use && files[i].parent_idx == fm_current_dir) {
+            if (x >= cur_x - 8 && x < cur_x + 68 && y >= cur_y - 8 && y < cur_y + 88) {
+                // File found! Open Context Menu
+                selected_file_idx = i; // Select it too
+                ctx_file_idx = i;
+                ctx_menu_active = 1;
+                ctx_menu_x = x;
+                ctx_menu_y = y;
+                
+                // Adjust if menu goes out of screen (assuming 800x600 or similar)
+                if (ctx_menu_x + 120 > 790) ctx_menu_x = 790 - 120;
+                if (ctx_menu_y + 85 > 590) ctx_menu_y = 590 - 85;
+                return;
+            }
+            
+            cur_x += gap_x;
+            if (cur_x > 800 - 70) {
+                cur_x = start_x;
+                cur_y += gap_y;
+            }
+        }
+    }
+    
+    // Clicked on empty space -> Close menu if open
+    ctx_menu_active = 0;
 }
