@@ -36,6 +36,24 @@ static void terminal_scroll() {
     term_buffer[TERM_ROWS - 1][0] = '\0';
 }
 
+static void terminal_print(const char* text);
+
+// Hilfsfunktion zum Zentrieren von Text
+static void terminal_print_centered(const char* text) {
+    int len = strlen(text);
+    int padding = (TERM_COLS - len) / 2;
+    if (padding < 0) padding = 0;
+    
+    for (int i = 0; i < padding; i++) terminal_print(" "); // Padding simulieren (einfach)
+    // Besser wäre direktes Schreiben in den Buffer, aber so geht es auch:
+    // Da terminal_print immer am Anfang der Zeile anfängt, bauen wir den String manuell:
+    char buf[TERM_COLS + 1];
+    int i = 0;
+    for (; i < padding; i++) buf[i] = ' ';
+    strcpy(buf + i, text);
+    terminal_print(buf);
+}
+
 static void terminal_print(const char* text) {
     // Wenn die letzte Zeile voll ist oder Text zu lang, scrollen (vereinfacht)
     // Hier fügen wir einfach immer in die erste freie Zeile ein oder scrollen
@@ -71,8 +89,8 @@ static void terminal_print_prompt() {
 
 void terminal_init() {
     terminal_clear();
-    terminal_print("ZeroUX Terminal [v1.5]");
-    terminal_print("(c) ZeroUX Corp. Filesystem Integrated.");
+    terminal_print_centered("ZeroUX Terminal [v1.5]");
+    terminal_print_centered("(c) ZeroUX Corp. Filesystem Integrated.");
     terminal_print("");
     // fs_init() should be called by kernel/gui init
 }
@@ -110,9 +128,9 @@ static void execute_command() {
         // Header nicht neu drucken bei cls, wie bei echtem CMD
     }
     else if (strcmp(input_buffer, "exit") == 0) {
-        // Fenster schließen (ID 6 ist Terminal)
-        // Note: ID needs to match gui.c registration
-        gui_close_window(6);
+        // Fenster schließen (ID 4 ist Terminal nach der Neu-Nummerierung)
+        // Note: ID must match app_list.def
+        gui_close_window(4);
     }
     else if (strncmp(input_buffer, "echo ", 5) == 0) {
         terminal_print(input_buffer + 5);
@@ -582,9 +600,6 @@ void terminal_handle_enter() {
 }
 
 void terminal_draw_vbe(int x, int y, int w, int h, int is_active) {
-    // Hintergrund (Schwarz)
-    vbe_fill_rect(x, y, w, h, TERM_BG);
-    
     int line_height = 16;
     int start_y = y + 5;
     int start_x = x + 5;
@@ -625,7 +640,14 @@ void terminal_draw_vbe(int x, int y, int w, int h, int is_active) {
         strcat(prompt_line, "> ");
         strcat(prompt_line, input_buffer);
         
-        vbe_draw_text(start_x, current_draw_y, prompt_line, TERM_FG, VBE_TRANSPARENT);
+        // Auch hier: Hintergrund schwarz zeichnen
+        vbe_draw_text(start_x, current_draw_y, prompt_line, TERM_FG, TERM_BG);
+        
+        // Den Rest der Zeile rechts vom Text löschen (damit Backspace sauber aussieht)
+        int text_width = strlen(prompt_line) * 8; // Annahme: 8px pro Zeichen
+        if (start_x + text_width < x + w) {
+            vbe_fill_rect(start_x + text_width, current_draw_y, (x + w) - (start_x + text_width), line_height, TERM_BG);
+        }
         
         // Cursor (Blinkend wenn aktiv)
         if (is_active && gui_get_caret_state()) {

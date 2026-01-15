@@ -63,9 +63,6 @@ void welcome_draw_vbe(int x, int y, int w, int h, int is_selected) {
     vbe_draw_text(x + 20, y + 100, "Calculator", VBE_YELLOW, VBE_TRANSPARENT);
     vbe_draw_text(x + 150, y + 100, "Simple math operations", VBE_LIGHT_GRAY, VBE_TRANSPARENT);
     
-    vbe_draw_text(x + 20, y + 150, "Notepad", VBE_YELLOW, VBE_TRANSPARENT);
-    vbe_draw_text(x + 150, y + 150, "Edit text files", VBE_LIGHT_GRAY, VBE_TRANSPARENT);
-    
     // Footer
     vbe_draw_text(x + 20, y + h - 30, "TAB = switch | Click window to focus", VBE_GRAY, VBE_TRANSPARENT);
 }

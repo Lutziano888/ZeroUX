@@ -114,6 +114,7 @@ void draw_aa_corners_rect(int x, int y, int w, int h, int r, unsigned int color,
 #include "apps/texteditor.h"
 #include "apps/settings.h"
 #include "apps/settings.c"
+#include "apps/google_browser.h"  // <--- NEU!
 
 #define MOUSE_PORT_STATUS 0x64
 #define TASKBAR_HEIGHT 50
@@ -143,7 +144,7 @@ int gui_get_caret_state() {
     return caret_state;
 }
 
-static int z_order[MAX_WINDOWS] = {0, 1, 2, 3, 4, 5, 6, 7, 8};
+static int z_order[MAX_WINDOWS] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
 
 static unsigned int cursor_backup[32 * 32]; // Max Cursor-Größe (Vergrößert für HD Cursor)
 static int last_cursor_x = -1;
@@ -1022,7 +1023,8 @@ void draw_start_menu() {
         
         unsigned int icon_colors[NUM_APPS] = {
             0x000078D7, 0x00FFB900, 0x0000CC6A, 0x00FF8C00,
-            0x00E74856, 0x009933CC, 0x00000000, 0xFFD19A66
+            0x00E74856, 0x009933CC, 0x00000000, 0xFFD19A66,
+            0xFF00A8E8
         };
         fill_round_rect(menu_x + 15, item_y + 10, 24, 24, 5, icon_colors[app_id]);
         draw_text_hd(menu_x + 50, item_y + 14, app_names[app_id], VBE_WHITE, 1);

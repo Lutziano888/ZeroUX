@@ -17,6 +17,7 @@ gcc -m32 -c vga.c -o build/vga.o -ffreestanding -nostdlib -nostdinc -fno-builtin
 gcc -m32 -c fs.c -o build/fs.o -ffreestanding -nostdlib -nostdinc -fno-builtin -fno-stack-protector -I. || exit 1
 gcc -m32 -c ethernet.c -o build/ethernet.o -ffreestanding -nostdlib -nostdinc -fno-builtin -fno-stack-protector -I. || exit 1
 gcc -m32 -c gui.c -o build/gui.o -ffreestanding -nostdlib -nostdinc -fno-builtin -fno-stack-protector -I. || exit 1
+gcc -m32 -c apps/google_browser.c -o build/apps/google_browser.o -ffreestanding -nostdlib -nostdinc -fno-builtin -fno-stack-protector -I. || exit 1  # <--- NEU!
 
 # Compile apps
 echo "Compiling apps..."
@@ -53,7 +54,9 @@ ld -m elf_i386 -T linker.ld -o build/kernel.elf \
     build/apps/memtest_app.o \
     build/apps/python_interpreter.o \
     build/apps/python_ide.o \
-    build/apps/texteditor.o || exit 1
+    build/apps/texteditor.o \
+    build/apps/google_browser.o || exit 1  # <--- NEU!
+
 
 # Create ISO
 echo "Creating ISO..."

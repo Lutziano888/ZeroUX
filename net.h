@@ -38,6 +38,9 @@ int net_tcp_read(char* buf, int max_len);
 const char* net_get_http_response();
 // ------------------
 
+// NEU: Simuliert eine erfolgreiche Antwort (für Demo-Zwecke)
+void net_simulate_http_response(const char* url);
+
 // Sendet einen Ping (ICMP Echo Request) an eine IP
 void net_ping(const char* ip_str);
 

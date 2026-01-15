@@ -15,3 +15,4 @@ APP(4, "Terminal", "apps/terminal.h", terminal_init, terminal_draw_vbe, NULL, te
 APP(5, "Python IDE", "apps/python_ide.h", python_ide_init, python_ide_draw_vbe, python_ide_handle_click, python_ide_handle_key, python_ide_handle_backspace, NULL, 700, 500, 150, 100)
 APP(6, "Text Editor", "apps/texteditor.h", texteditor_init, texteditor_draw_vbe, texteditor_handle_click, texteditor_handle_key, texteditor_handle_backspace, NULL, 500, 400, 200, 150)
 APP(7, "Settings", "apps/settings.h", settings_init, settings_draw_vbe, settings_handle_click_vbe, NULL, NULL, NULL, 600, 450, 100, 100)
+APP(8, "Browser", "apps/google_browser.h", google_browser_init, google_browser_draw_vbe, google_browser_handle_click_vbe, google_browser_handle_input, google_browser_handle_backspace, NULL, 800, 600, 150, 50)

@@ -7,4 +7,6 @@ void texteditor_handle_click(int x, int y);
 void texteditor_handle_key(char c);
 void texteditor_handle_backspace();
 
+void texteditor_set_file(const char* filename);
+
 #endif

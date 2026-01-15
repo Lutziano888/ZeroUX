@@ -177,9 +177,9 @@ int mouse_read_packet(int* dx, int* dy, int* buttons) {
         
         // Prüfen: Daten vorhanden UND von Maus (Bit 5)
         if (!(status & 0x20)) {
-            // Nicht von Maus -> verwerfen
-            inb(MOUSE_PORT_DATA);
-            continue;
+            // Nicht von Maus -> Gehört der Tastatur!
+            // Abbrechen, damit der Keyboard-Treiber das Byte lesen kann.
+            break;
         }
         
         unsigned char byte = inb(MOUSE_PORT_DATA);

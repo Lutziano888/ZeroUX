@@ -1,3 +1,6 @@
+// ============================================================================
+// DATEI 2: gui.h (KOMPLETT)
+// ============================================================================
 #ifndef GUI_H
 #define GUI_H
 
@@ -29,8 +32,8 @@ int check_close_button_click(int cx, int cy, int win_x, int win_y, int win_w);
 void draw_text_hd(int x, int y, const char* text, unsigned int color, int size);
 void draw_text_antialiased(int x, int y, const char* text, unsigned int color);
 
-// Window count constant
-#define MAX_WINDOWS 9
+// Window count constant - ERHÖHT FÜR BROWSER!
+#define MAX_WINDOWS 10
 
 // NEU: Auflösungsunterstützung
 #define RES_1080P 0

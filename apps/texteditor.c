@@ -14,6 +14,8 @@ static int filename_len = 12;
 static int focus_mode = 0; // 0 = Text Area, 1 = Filename Input
 static char status_msg[64] = "Ready";
 
+extern int fs_save_file(const char* name, const char* data, int len);
+
 void texteditor_init() {
     text_len = 0;
     text_buffer[0] = '\0';
@@ -23,17 +25,42 @@ void texteditor_init() {
     strcpy(status_msg, "Ready");
 }
 
+// Hilfsfunktion: .txt Endung erzwingen (Treiber-Logik)
+static void ensure_txt_extension() {
+    if (filename_len < 4 || strcmp(filename_buffer + filename_len - 4, ".txt") != 0) {
+        if (filename_len + 4 < MAX_FILENAME) {
+            strcat(filename_buffer, ".txt");
+            filename_len += 4;
+        }
+    }
+}
+
 static void load_file() {
+    ensure_txt_extension(); // Automatisch .txt anhängen
+
     file_t* files = fs_get_table();
     int current_dir = fs_get_current_dir(); // Nimmt aktuelles Verzeichnis vom System
-    // Oder wir suchen global/rekursiv, aber hier vereinfacht im aktuellen Kontext oder Root
-    // Wir suchen einfach in allen Dateien, da wir keine Pfad-Navigation im Editor haben
     
     int found = -1;
+    
+    // 1. Suche im aktuellen Verzeichnis (Priorität)
     for (int i = 0; i < MAX_FILES; i++) {
-        if (files[i].in_use && files[i].type == FILE_TYPE_FILE && strcmp(files[i].name, filename_buffer) == 0) {
+        if (files[i].in_use && files[i].type == FILE_TYPE_FILE && 
+            files[i].parent_idx == current_dir &&
+            strcmp(files[i].name, filename_buffer) == 0) {
             found = i;
             break;
+        }
+    }
+    
+    // 2. Fallback: Suche überall (falls Datei woanders liegt)
+    if (found == -1) {
+        for (int i = 0; i < MAX_FILES; i++) {
+            if (files[i].in_use && files[i].type == FILE_TYPE_FILE && 
+                strcmp(files[i].name, filename_buffer) == 0) {
+                found = i;
+                break;
+            }
         }
     }
 
@@ -46,7 +73,16 @@ static void load_file() {
     }
 }
 
+void texteditor_set_file(const char* filename) {
+    if (strlen(filename) < MAX_FILENAME) {
+        strcpy(filename_buffer, filename);
+        filename_len = strlen(filename_buffer);
+        load_file();
+    }
+}
+
 static void save_file() {
+    ensure_txt_extension(); // Automatisch .txt anhängen
     if (fs_save_file(filename_buffer, text_buffer, text_len) == 0) {
         strcpy(status_msg, "File saved.");
     } else {
